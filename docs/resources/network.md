@@ -139,6 +139,7 @@ Used for internal DNS resolution and DHCP options.
 * DHCP services will be stopped
 * Existing clients will be disconnected
 Useful for temporary network maintenance or security measures. Defaults to `true`.
+- `firewall_zone_id` (String) The ID of the UniFi Network firewall zone assigned to this network.
 - `igmp_snooping` (Boolean) Enables IGMP (Internet Group Management Protocol) snooping. When enabled:
 * Optimizes multicast traffic flow
 * Reduces network congestion

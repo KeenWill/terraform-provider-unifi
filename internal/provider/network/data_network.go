@@ -58,6 +58,11 @@ func DataNetwork() *schema.Resource {
 				Type:        schema.TypeString,
 				Computed:    true,
 			},
+			"firewall_zone_id": {
+				Description: "The ID of the UniFi Network firewall zone assigned to this network.",
+				Type:        schema.TypeString,
+				Computed:    true,
+			},
 			"dhcp_start": {
 				Description: "The IPv4 address where the DHCP range of addresses starts.",
 				Type:        schema.TypeString,
@@ -331,6 +336,7 @@ func dataNetworkRead(ctx context.Context, d *schema.ResourceData, meta interface
 			d.Set("vlan_id", n.VLAN)
 			d.Set("subnet", utils.CidrZeroBased(n.IPSubnet))
 			d.Set("network_group", n.NetworkGroup)
+			d.Set("firewall_zone_id", n.FirewallZoneID)
 			d.Set("dhcp_dns", dhcpDNS)
 			d.Set("dhcp_start", n.DHCPDStart)
 			d.Set("dhcp_stop", n.DHCPDStop)

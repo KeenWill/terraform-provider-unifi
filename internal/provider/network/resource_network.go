@@ -121,6 +121,12 @@ func ResourceNetwork() *schema.Resource {
 				Optional: true,
 				Default:  "LAN",
 			},
+			"firewall_zone_id": {
+				Description: "The ID of the UniFi Network firewall zone assigned to this network.",
+				Type:        schema.TypeString,
+				Optional:    true,
+				Computed:    true,
+			},
 			"dhcp_start": {
 				Description: "The starting IPv4 address of the DHCP range. Examples:\n" +
 					"* For subnet 192.168.1.0/24, typical start: '192.168.1.100'\n" +
@@ -579,6 +585,7 @@ func resourceNetworkGetResourceData(d *schema.ResourceData, meta interface{}) (*
 		VLAN:              vlan,
 		IPSubnet:          utils.CidrOneBased(d.Get("subnet").(string)),
 		NetworkGroup:      d.Get("network_group").(string),
+		FirewallZoneID:    d.Get("firewall_zone_id").(string),
 		DHCPDStart:        d.Get("dhcp_start").(string),
 		DHCPDStop:         d.Get("dhcp_stop").(string),
 		DHCPDEnabled:      d.Get("dhcp_enabled").(bool),
@@ -725,6 +732,7 @@ func resourceNetworkSetResourceData(resp *unifi.Network, d *schema.ResourceData,
 	d.Set("vlan_id", vlan)
 	d.Set("subnet", utils.CidrZeroBased(resp.IPSubnet))
 	d.Set("network_group", resp.NetworkGroup)
+	d.Set("firewall_zone_id", resp.FirewallZoneID)
 
 	d.Set("dhcp_dns", dhcpDNS)
 	d.Set("dhcp_enabled", resp.DHCPDEnabled)
