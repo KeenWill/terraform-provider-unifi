@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 import pipeline
-from shutdown import install_shutdown_handler
+from shutdown import ShutdownRequested, install_shutdown_handler
 import surface
 
 
@@ -114,6 +114,8 @@ def run(config):
             try:
                 print(json.dumps(poll(target, state, used, config.get("test_command"),
                                       config["notify_command"], qualification)))
+            except ShutdownRequested:
+                raise
             except Exception as error:
                 # Do not print subprocess arguments, environment or response bodies.
                 print(json.dumps({"target": target["product"], "error_type": type(error).__name__}))

@@ -108,10 +108,9 @@ def parse(data):
     name = constant(r.u2())
     parent_index = r.u2()
     parent = constant(parent_index) if parent_index else None
-    for _ in range(r.u2()):
-        r.u2()
+    interfaces = [constant(r.u2()) for _ in range(r.u2())]
     fields, methods = members(), members()
-    return {"name": name, "parent": parent, "fields": fields,
+    return {"name": name, "parent": parent, "interfaces": interfaces, "fields": fields,
             "methods": methods, **attributes(r)}
 
 

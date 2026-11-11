@@ -67,6 +67,17 @@ class WatchTests(unittest.TestCase):
                 watch.poll(self.target, self.state, [], [], ["coord", "notify"])
         self.assertFalse(self.pointer.exists())
 
+    def test_shutdown_never_starts_a_subsequent_target(self):
+        used = self.state / "used.json"
+        used.write_text("[]")
+        config = {"state_directory": str(self.state), "used_api_file": str(used),
+                  "notify_command": ["coord", "notify"], "targets": [self.target, self.target]}
+        with patch("watch.subprocess.check_output", side_effect=["revision", ""]), \
+                patch("watch.poll", side_effect=watch.ShutdownRequested("stopping")) as poll:
+            with self.assertRaises(watch.ShutdownRequested):
+                watch.run(config)
+            self.assertEqual(poll.call_count, 1)
+
     def test_provider_or_pipeline_revision_requires_requalification(self):
         self.poll("a" * 64, qualification="old revision")
         result, tested, _ = self.poll("a" * 64, qualification="new revision")
