@@ -16,17 +16,20 @@ from classfile import descriptors, mappings, parse
 VERBS = {"get", "put", "post", "delete", "patch", "head", "options"}
 
 
-def factual(value):
+def factual(value, names=False, literal=False):
     if isinstance(value, dict):
-        return {k: factual(v) for k, v in sorted(value.items())
-                if k not in {"description", "summary", "example", "examples", "externalDocs"}}
+        named_maps = {"properties", "patternProperties", "$defs", "definitions", "schemas", "headers", "encoding", "links"}
+        return {k: factual(v, names=k in named_maps and not names,
+                           literal=literal or (not names and k in {"default", "const", "enum"}))
+                for k, v in sorted(value.items())
+                if names or literal or k not in {"description", "summary", "example", "examples", "externalDocs"}}
     if isinstance(value, list):
-        return [factual(v) for v in value]
+        return [factual(v, literal=literal) for v in value]
     return value
 
 
 def public_surface(spec):
-    schemas = factual(spec.get("components", {}).get("schemas", {}))
+    schemas = factual(spec.get("components", {}).get("schemas", {}), names=True)
 
     def resolve(value, seen=frozenset()):
         if isinstance(value, dict):

@@ -18,7 +18,7 @@ class WatchTests(unittest.TestCase):
         self.document = {"format_version": 1, "application_version": "11.0.99",
                          "operations": []}
 
-    def poll(self, sha, fail_test=False, fail_notice=False, changed=False):
+    def poll(self, sha, fail_test=False, fail_notice=False, changed=False, qualification="fixture"):
         fetched = {"artifact": "/fixture/artifact", "release": {
             "version": "v11.0.99", "sha256_checksum": sha}}
         current = self.document if not changed else {**self.document, "operations": [{
@@ -31,7 +31,7 @@ class WatchTests(unittest.TestCase):
                 patch("watch.notice", side_effect=RuntimeError("notice unavailable")
                       if fail_notice else None) as notify:
             result = watch.poll(self.target, self.state, [{"path": "/used", "reason": "managed"}],
-                                ["isolated-runner"], ["coord", "notify"])
+                                ["isolated-runner"], ["coord", "notify"], qualification)
             return result, test.call_count, notify.call_count
 
     def test_failed_acceptance_does_not_advance_successful_baseline(self):
@@ -66,6 +66,12 @@ class WatchTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "requires an isolated"):
                 watch.poll(self.target, self.state, [], [], ["coord", "notify"])
         self.assertFalse(self.pointer.exists())
+
+    def test_provider_or_pipeline_revision_requires_requalification(self):
+        self.poll("a" * 64, qualification="old revision")
+        result, tested, _ = self.poll("a" * 64, qualification="new revision")
+        self.assertNotIn("unchanged", result)
+        self.assertEqual(1, tested)
 
 
 if __name__ == "__main__":

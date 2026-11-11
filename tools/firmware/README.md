@@ -132,6 +132,7 @@ downloads and Matter discovery require separate hardware evidence.
   "used_api_file": "/private/provider/tools/firmware/used-api.json",
   "test_command": ["python3", "/private/provider/tools/firmware/lab.py", "--config", "/private/lab/lab.json"],
   "notify_command": ["coord", "notify"],
+  "qualification_files": ["/private/lab/lab.json"],
   "targets": [
     {"product":"unifi-dream", "platform":"UDMPRO", "test":false},
     {"product":"unifi", "platform":"uos-deb13-amd64", "test":true}
@@ -145,7 +146,10 @@ service manually and inspect its receipts before enabling the timer with
 `systemctl --user enable --now unifi-firmware.timer`. Installing these example
 files alone does not enable a job. No GitHub-hosted Actions or dashboard is used.
 
-An exclusive lock prevents overlapping polls. Every version has a surface and
+An exclusive lock prevents overlapping polls. The checkout must be clean and
+committed. Qualification includes the provider/tool revision, used-API rules,
+job configuration and hashes of the listed lab configuration files; changing
+these reruns mapping and acceptance even when firmware bytes are unchanged. Every version has a surface and
 diff named by its artifact hash. `accepted.json` advances only after tests and
 any required notification succeed; failures preserve the previous baseline and
 write `last-run.json`. Changes to used APIs and pipeline/test failures emit a

@@ -42,13 +42,13 @@ def notice(command, key, message):
                    check=True, timeout=30)
 
 
-def poll(target, state, used, test_command, notify_command):
+def poll(target, state, used, test_command, notify_command, qualification="fixture"):
     name = target["product"] + "-" + target["platform"]
     if any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for c in name):
         raise ValueError("invalid target name")
     directory = state / name
     directory.mkdir(parents=True, exist_ok=True)
-    receipt = {"target": name, "test": "not-run"}
+    receipt = {"target": name, "test": "not-run", "qualification": qualification}
     try:
         fetched = pipeline.fetch(target["product"], target["platform"], state / "cache")
         release = fetched["release"]
@@ -56,7 +56,7 @@ def poll(target, state, used, test_command, notify_command):
         receipt.update(artifact_sha256=sha, release=release["version"])
         pointer = directory / "accepted.json"
         previous = json.loads(pointer.read_text()) if pointer.exists() else None
-        if previous and previous["artifact_sha256"] == sha:
+        if previous and previous["artifact_sha256"] == sha and previous.get("qualification") == qualification:
             return {**receipt, "test": previous["test"], "unchanged": True}
         # Extraction never shares a destination with a previous run.
         with tempfile.TemporaryDirectory(prefix="unifi-map-", dir=state) as work:
@@ -100,11 +100,19 @@ def run(config):
     with (state / "poll.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         used = json.loads(Path(config["used_api_file"]).read_text())
+        repo = Path(__file__).resolve().parents[2]
+        revision = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+        dirty = subprocess.check_output(["git", "-C", str(repo), "status", "--porcelain"], text=True)
+        if dirty:
+            raise ValueError("scheduled qualification requires a clean committed provider checkout")
+        inputs = {"revision": revision, "used": used, "config": config,
+                  "qualification_files": {p: pipeline.digest(p) for p in config.get("qualification_files", [])}}
+        qualification = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
         failed = False
         for target in config["targets"]:
             try:
                 print(json.dumps(poll(target, state, used, config.get("test_command"),
-                                      config["notify_command"])))
+                                      config["notify_command"], qualification)))
             except Exception as error:
                 # Do not print subprocess arguments, environment or response bodies.
                 print(json.dumps({"target": target["product"], "error_type": type(error).__name__}))

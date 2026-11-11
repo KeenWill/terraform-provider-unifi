@@ -72,6 +72,20 @@ class FetchTests(unittest.TestCase):
 
 
 class SurfaceTests(unittest.TestCase):
+    def test_documentation_named_properties_and_literal_defaults_survive_mapping(self):
+        original = {"properties": {"description": {"type": "string", "description": "prose"},
+                                   "example": {"type": "integer"}},
+                    "default": {"description": "actual default"}, "description": "prose"}
+        mapped = surface.factual(original)
+        self.assertEqual({"type": "string"}, mapped["properties"]["description"])
+        self.assertEqual({"type": "integer"}, mapped["properties"]["example"])
+        self.assertEqual({"description": "actual default"}, mapped["default"])
+        self.assertNotIn("description", mapped)
+        changed = {**original, "properties": {**original["properties"], "description": {"type": "integer"}}}
+        before = {"format_version": 1, "application_version": "1", "operations": [{"source": "bundled-openapi", "path": "/used", "method": "GET", "responses": mapped}]}
+        after = {**before, "operations": [{**before["operations"][0], "responses": surface.factual(changed)}]}
+        self.assertTrue(pipeline.compare(before, after, [{"path": "/used", "reason": "policy description"}])["touches_used_api"])
+
     def test_public_reference_changes_are_visible_at_the_operation(self):
         spec = {"paths": {"/v1/sites/{siteId}/networks": {"post": {
             "requestBody": {"content": {"application/json": {
