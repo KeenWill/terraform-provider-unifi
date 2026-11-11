@@ -142,6 +142,55 @@ def private_surface(archive):
             cache[name] = {**parse(data), "class_sha256": hashlib.sha256(data).hexdigest()}
         return cache[name]
 
+    evidence_cache = {}
+
+    def model_evidence(descriptor, signature):
+        # This graph does not infer JSON names. It follows all field/getter/type
+        # references, including unannotated members and arguments inside unknown
+        # external containers, retaining hashes of reachable application classes.
+        key = (descriptor, signature)
+        if key in evidence_cache:
+            return evidence_cache[key]
+        pending, seen, hashes = [], set(), {}
+
+        def references(value):
+            if isinstance(value, str):
+                pending.extend(re.findall(r"L([^;<:]+)", value))
+            elif isinstance(value, dict):
+                for child in value.values():
+                    references(child)
+            elif isinstance(value, list):
+                for child in value:
+                    references(child)
+
+        references(descriptor)
+        references(signature)
+        while pending:
+            name = pending.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            if len(seen) > 50000:
+                raise ValueError("private model reference graph exceeds limit")
+            cls = get_class(name)
+            if cls is None:
+                continue
+            hashes[name] = cls["class_sha256"]
+            if cls.get("parent"):
+                pending.append(cls["parent"])
+            pending.extend(cls.get("interfaces", []))
+            references(cls.get("signature"))
+            references(cls.get("annotations", []))
+            for member in cls["fields"] + cls["methods"]:
+                references(member.get("descriptor"))
+                references(member.get("signature"))
+                references(member.get("annotations", []))
+        result = {"reachable_class_count": len(hashes),
+                  "sha256": hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest(),
+                  "scope": "conservative transitive application-model bytecode"}
+        evidence_cache[key] = result
+        return result
+
     def annotations_by_name(items):
         return {x["type"].rsplit("/", 1)[-1].rstrip(";"): x["values"] for x in items}
 
@@ -238,6 +287,7 @@ def private_surface(archive):
                                                "source": "spring-annotation",
                                                "schema_completeness": "partial",
                                                "jvm_contract": {"descriptor": member["descriptor"], "signature": member.get("signature")},
+                                               "model_evidence": model_evidence(member["descriptor"], member.get("signature")),
                                                "request": requests,
                                                "responses": response})
     # Servlet mounting prefixes are deliberately not inferred from class names.

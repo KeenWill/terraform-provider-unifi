@@ -40,8 +40,9 @@ Maps resolve public schema references at each operation, so a shared-model chang
 appears in the corresponding endpoint diff. The Java mapper reads Spring and
 serialization annotations directly from class bytes without running the classes.
 It retains overloaded routes, unknown methods and incomplete schemas. Reachable
-DTO bytecode hashes are retained as conservative change evidence, including for
-models whose serializer cannot be inferred; implementation-only changes can
+Transitive DTO bytecode hashes are retained as conservative change evidence,
+including generic arguments inside external containers, unannotated fields,
+accessor methods, inherited classes and interfaces whose serializer cannot be inferred; implementation-only changes can
 therefore require inspection too. It does
 not invent servlet prefixes, custom serializer behavior or dynamic REST routes.
 Reviewed UI observations supplement these gaps only when the exact UI hashes
