@@ -40,12 +40,20 @@
     "reason": "Legacy network, WLAN, device, client, profile, route and group resources"
   },
   {
-    "path": "*/stat/device*",
-    "reason": "Device refresh and port preservation"
-  },
-  {
     "path": "*/setting*",
     "reason": "Private singleton settings"
+  },
+  {
+    "path": "*/stat/*",
+    "reason": "Controller version, optional client statistics, device refresh and port preservation"
+  },
+  {
+    "path": "*/self/*",
+    "reason": "Legacy site discovery during initialization"
+  },
+  {
+    "path": "*/cmd/*",
+    "reason": "Legacy command-backed provider operations"
   },
   {
     "path": "/api/site/*/global/config/network",

@@ -136,6 +136,13 @@ class SurfaceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             surface.public_surface(spec)
 
+    def test_used_inventory_covers_version_and_client_statistics(self):
+        rules = json.loads((Path(__file__).parent / "used-api.json").read_text())
+        for path in ["/api/s/{site}/stat/sysinfo", "/api/s/{site}/stat/user/{mac}"]:
+            before = {"format_version": 1, "application_version": "a", "operations": []}
+            after = {**before, "operations": [{"source": "spring-annotation", "path": path, "method": "GET"}]}
+            self.assertTrue(pipeline.compare(before, after, rules)["touches_used_api"])
+
     def test_unrelated_changes_do_not_trigger_used_api_signal(self):
         document = {"format_version": 1, "application_version": "a", "operations": [
             {"source": "bundled-openapi", "path": "/v1/countries", "method": "GET", "responses": {}}]}
