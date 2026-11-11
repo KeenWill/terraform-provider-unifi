@@ -1,0 +1,7 @@
+[Unit]
+Description=Report a failed UniFi firmware scheduled job
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/coord notify --from unifi-firmware --key service-failed "UniFi firmware job failed; inspect its local receipt and service journal."
+UMask=0077

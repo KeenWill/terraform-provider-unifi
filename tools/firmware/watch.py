@@ -89,7 +89,7 @@ def poll(target, state, used, test_command, notify_command, qualification="fixtu
     except Exception as error:
         receipt.update(test="failed", error_type=type(error).__name__)
         pipeline.write_json(directory / "last-run.json", receipt)
-        key = hashlib.sha256((name + receipt.get("artifact_sha256", "fetch")).encode()).hexdigest()[:20]
+        key = hashlib.sha256((name + receipt.get("artifact_sha256", "fetch") + qualification).encode()).hexdigest()[:20]
         notice(notify_command, "failure-" + key,
                "UniFi firmware pipeline failed; inspect its local receipt and start a debug lane.")
         raise
