@@ -17,6 +17,8 @@ install_shutdown_handler()
 try:
  print("ready",flush=True)
  time.sleep(60)
+except (OSError, Exception):
+ sys.exit(0)  # Poll/retry handlers must never swallow service termination.
 finally:
  pathlib.Path(sys.argv[1]).write_text("cleaned")
 '''

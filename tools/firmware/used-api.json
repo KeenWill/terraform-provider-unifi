@@ -36,6 +36,10 @@
     "reason": "Private firewall zone resources"
   },
   {
+    "path": "/api/site/*/static-dns*",
+    "reason": "Private DNS record resources"
+  },
+  {
     "path": "*/rest/*",
     "reason": "Legacy network, WLAN, device, client, profile, route and group resources"
   },
