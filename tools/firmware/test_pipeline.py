@@ -226,6 +226,28 @@ class SurfaceTests(unittest.TestCase):
             self.assertTrue(pipeline.compare(original, {**original, "operations": after},
                                             [{"path": "/used", "reason": "used"}])["touches_used_api"])
 
+    def test_spring_parameter_and_media_contract_changes_are_visible(self):
+        parameter = {"type": "Lorg/springframework/web/bind/annotation/RequestParam;",
+                     "values": {"value": "mac", "required": False}}
+        method = {"descriptor": "(Ljava/lang/String;)V", "parameters": [[parameter]],
+                  "annotations": [{"type": "Lorg/springframework/web/bind/annotation/GetMapping;",
+                                   "values": {"value": ["/used"], "produces": ["application/json"]}}]}
+        controller = {"name": "Controller", "parent": "java/lang/Object", "fields": [],
+                      "annotations": [], "methods": [method]}
+        content = io.BytesIO()
+        with zipfile.ZipFile(content, "w") as archive:
+            archive.writestr("Controller.class", b"/web/bind/annotation/controller")
+        def mapped():
+            with zipfile.ZipFile(io.BytesIO(content.getvalue())) as archive, patch.object(surface, "parse", return_value=controller):
+                return surface.private_surface(archive)
+        for change in [lambda: parameter["values"].update(required=True),
+                       lambda: method["annotations"][0]["values"].update(produces=["text/plain"])]:
+            before = mapped()
+            change()
+            original = {"format_version": 1, "application_version": "a", "operations": before}
+            self.assertTrue(pipeline.compare(original, {**original, "operations": mapped()},
+                                            [{"path": "/used", "reason": "used"}])["touches_used_api"])
+
     def test_unrelated_changes_do_not_trigger_used_api_signal(self):
         document = {"format_version": 1, "application_version": "a", "operations": [
             {"source": "bundled-openapi", "path": "/v1/countries", "method": "GET", "responses": {}}]}
