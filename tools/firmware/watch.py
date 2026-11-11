@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 import pipeline
+from shutdown import install_shutdown_handler
 import surface
 
 
@@ -121,6 +122,7 @@ def run(config):
 
 
 if __name__ == "__main__":
+    install_shutdown_handler()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config", type=Path)
     args = parser.parse_args()

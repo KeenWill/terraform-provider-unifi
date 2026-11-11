@@ -19,6 +19,7 @@ import urllib.request
 from pathlib import Path
 
 import pipeline
+from shutdown import install_shutdown_handler
 
 
 def verify_acceptance_output(output):
@@ -160,6 +161,7 @@ def run(config, artifact, sha, version):
 
 
 if __name__ == "__main__":
+    install_shutdown_handler()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--artifact", type=Path, required=True)
