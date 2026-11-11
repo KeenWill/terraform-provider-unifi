@@ -65,7 +65,7 @@ func (r *mdnsScopeResource) ValidateConfig(ctx context.Context, req resource.Val
 		if config.NetworkIDs.IsNull() || (!config.NetworkIDs.IsUnknown() && len(config.NetworkIDs.Elements()) == 0) {
 			resp.Diagnostics.AddError("Missing mDNS networks", "scope = some requires a nonempty network_ids set")
 		}
-	} else if !config.NetworkIDs.IsNull() {
+	} else if !config.NetworkIDs.IsNull() && !config.NetworkIDs.IsUnknown() {
 		resp.Diagnostics.AddError("Unexpected mDNS networks", "Omit network_ids when scope is all or none")
 	}
 }
