@@ -101,6 +101,23 @@ class SurfaceTests(unittest.TestCase):
         self.assertTrue(diff["touches_used_api"])
         self.assertEqual(diff["changes"][0]["kind"], "changed")
 
+    def test_reusable_components_and_escaped_pointers(self):
+        for category, field in [("responses", "responses"), ("requestBodies", "requestBody"), ("parameters", "parameters")]:
+            reference = {"$ref": "#/components/" + category + "/Shared~1name"}
+            value = {"200": reference} if field == "responses" else ([reference] if field == "parameters" else reference)
+            spec = {"paths": {"/v1/sites": {"get": {field: value}}},
+                    "components": {category: {"Shared/name": {"schema": {"type": "string"}}}}}
+            before = surface.public_surface(spec)
+            spec["components"][category]["Shared/name"]["schema"]["type"] = "integer"
+            after = surface.public_surface(spec)
+            diff = pipeline.compare({"format_version": 1, "application_version": "a", "operations": before},
+                                    {"format_version": 1, "application_version": "b", "operations": after},
+                                    [{"path": "*/sites", "reason": "used"}])
+            self.assertTrue(diff["touches_used_api"])
+            del spec["components"][category]["Shared/name"]
+            with self.assertRaises(ValueError):
+                surface.public_surface(spec)
+
     def test_unrelated_changes_do_not_trigger_used_api_signal(self):
         document = {"format_version": 1, "application_version": "a", "operations": [
             {"source": "bundled-openapi", "path": "/v1/countries", "method": "GET", "responses": {}}]}
@@ -123,7 +140,7 @@ class SurfaceTests(unittest.TestCase):
             "$ref": "#/components/schemas/Tree"}}}}}, "components": {"schemas": {
             "Tree": {"type": "object", "properties": {"child": {"$ref": "#/components/schemas/Tree"}}}}}}
         tree = surface.public_surface(spec)[0]["responses"]["200"]
-        self.assertEqual(tree["properties"]["child"], {"recursiveReference": "Tree"})
+        self.assertEqual(tree["properties"]["child"], {"recursiveReference": "#/components/schemas/Tree"})
 
     def test_truncated_class_does_not_execute_or_silently_map(self):
         for data in [b"", b"not-a-class", b"\xca\xfe\xba\xbe\x00\x00\x00\x41\x00\x02\x01"]:
