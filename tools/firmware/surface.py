@@ -29,18 +29,26 @@ def factual(value, names=False, literal=False):
 
 
 def public_surface(spec):
-    schemas = factual(spec.get("components", {}).get("schemas", {}), names=True)
 
     def resolve(value, seen=frozenset()):
         if isinstance(value, dict):
             ref = value.get("$ref")
-            if ref and ref.startswith("#/components/schemas/"):
-                name = ref.removeprefix("#/components/schemas/")
-                if name in seen:
-                    return {"recursiveReference": name}
-                if name not in schemas:
-                    raise ValueError(f"missing public schema {name}")
-                return resolve(schemas[name], seen | {name})
+            if ref:
+                if not isinstance(ref, str) or not ref.startswith("#/components/"):
+                    raise ValueError("unsupported public reference")
+                if ref in seen:
+                    return {"recursiveReference": ref}
+                target = spec
+                try:
+                    for part in ref[2:].split("/"):
+                        target = target[part.replace("~1", "/").replace("~0", "~")]
+                except (KeyError, TypeError):
+                    raise ValueError(f"missing public component {ref}") from None
+                resolved = resolve(factual(target), seen | {ref})
+                siblings = {k: v for k, v in value.items() if k != "$ref"}
+                if siblings:
+                    return {"resolvedReference": resolved, "referenceSiblings": resolve(siblings, seen)}
+                return resolved
             return {k: resolve(v, seen) for k, v in value.items()}
         if isinstance(value, list):
             return [resolve(v, seen) for v in value]
