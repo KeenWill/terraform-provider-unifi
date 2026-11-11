@@ -18,6 +18,7 @@ type labManifest struct {
 	Endpoint string `json:"endpoint"`
 	Username string `json:"username"`
 	Password string `json:"password"`
+	APIKey   string `json:"api_key"`
 	Version  string `json:"version"`
 }
 
@@ -46,14 +47,16 @@ func runLab(m *testing.M, callback func(env *TestEnvironment), filename string) 
 		return fail("cannot read acceptance lab manifest")
 	}
 	var manifest labManifest
-	if json.Unmarshal(data, &manifest) != nil || manifest.Username == "" || manifest.Password == "" || manifest.Version == "" {
+	if json.Unmarshal(data, &manifest) != nil || manifest.Version == "" ||
+		(manifest.APIKey == "" && (manifest.Username == "" || manifest.Password == "")) ||
+		(manifest.APIKey != "" && (manifest.Username != "" || manifest.Password != "")) {
 		return fail("incomplete acceptance lab manifest")
 	}
 	if err := validateLabEndpoint(manifest.Endpoint); err != nil {
 		return fail(err.Error())
 	}
 	client, err := base.NewClient(&base.ClientConfig{URL: manifest.Endpoint,
-		Username: manifest.Username, Password: manifest.Password, Insecure: true, Site: "default"})
+		Username: manifest.Username, Password: manifest.Password, APIKey: manifest.APIKey, Insecure: true, Site: "default"})
 	if err != nil {
 		return fail("cannot authenticate disposable acceptance controller")
 	}
@@ -62,7 +65,7 @@ func runLab(m *testing.M, callback func(env *TestEnvironment), filename string) 
 	}
 	for name, value := range map[string]string{"UNIFI_API": manifest.Endpoint,
 		"UNIFI_USERNAME": manifest.Username, "UNIFI_PASSWORD": manifest.Password,
-		"UNIFI_INSECURE": "true", "UNIFI_SITE": "default", "UNIFI_API_KEY": ""} {
+		"UNIFI_INSECURE": "true", "UNIFI_SITE": "default", "UNIFI_API_KEY": manifest.APIKey} {
 		if os.Setenv(name, value) != nil {
 			return fail("cannot configure disposable acceptance environment")
 		}

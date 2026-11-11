@@ -8,6 +8,7 @@ its OS dependencies and a lab account. No production credentials are accepted.
 import argparse
 import json
 import os
+import shutil
 import socket
 import ssl
 import subprocess
@@ -18,6 +19,20 @@ import urllib.request
 from pathlib import Path
 
 import pipeline
+
+
+def verify_acceptance_output(output):
+    passed = set()
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("Action") == "pass" and event.get("Test", "").startswith("TestAcc"):
+            passed.add(event["Test"])
+    if not passed:
+        raise RuntimeError("acceptance command passed no TestAcc tests; use go test -json and a matching selector")
+    return sorted(passed)
 
 
 def free_port():
@@ -40,11 +55,16 @@ def wait_ready(endpoint, auth, expected, process, timeout):
         if process.poll() is not None:
             raise RuntimeError("disposable VM exited before Network became ready")
         try:
-            request = urllib.request.Request(endpoint + "/api/auth/login",
-                json.dumps(auth).encode(), {"Content-Type": "application/json"})
-            with opener.open(request, timeout=15):
-                pass
-            with opener.open(endpoint + "/proxy/network/api/s/default/stat/sysinfo", timeout=15) as response:
+            headers = {}
+            if "api_key" in auth:
+                headers["X-API-KEY"] = auth["api_key"]
+            else:
+                request = urllib.request.Request(endpoint + "/api/auth/login",
+                    json.dumps(auth).encode(), {"Content-Type": "application/json"})
+                with opener.open(request, timeout=15):
+                    pass
+            request = urllib.request.Request(endpoint + "/proxy/network/api/s/default/stat/sysinfo", headers=headers)
+            with opener.open(request, timeout=15) as response:
                 versions = [item.get("version") for item in json.load(response)["data"]]
             if versions == [expected]:
                 return
@@ -67,8 +87,8 @@ def run(config, artifact, sha, version):
         if private.stat().st_mode & 0o077:
             raise ValueError("lab credential files must be owner-only")
     auth = json.loads(auth_path.read_text())
-    if set(auth) != {"username", "password"}:
-        raise ValueError("lab authentication file must contain only username and password")
+    if set(auth) not in ({"username", "password"}, {"api_key"}):
+        raise ValueError("lab authentication file must contain a local lab API key or username/password")
     root = Path(config["work_directory"]).resolve()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.TemporaryDirectory(prefix="unifi-acceptance-", dir=root) as temporary:
@@ -116,10 +136,18 @@ def run(config, artifact, sha, version):
                 manifest.write_text(json.dumps({**auth, "endpoint": endpoint, "version": version}))
                 manifest.chmod(0o600)
                 env = {k: v for k, v in os.environ.items() if not k.startswith(("UNIFI_", "TF_VAR_"))}
-                env.update(TF_ACC="1", UNIFI_ACCTEST_LAB_FILE=str(manifest))
-                subprocess.run(config["acceptance_command"], env=env,
-                               cwd=config["provider_directory"], check=True,
-                               timeout=config.get("acceptance_timeout_seconds", 1200))
+                env.update(TF_ACC="1", UNIFI_ACCTEST_LAB_FILE=str(manifest),
+                           TF_ACC_PROVIDER_HOST="registry.opentofu.org", TF_ACC_PROVIDER_NAMESPACE="KeenWill")
+                result = subprocess.run(config["acceptance_command"], env=env,
+                                        cwd=config["provider_directory"], capture_output=True, text=True,
+                                        timeout=config.get("acceptance_timeout_seconds", 1200))
+                # Keep private diagnostic output, but never echo credentials or
+                # controller bodies into a notification or public job summary.
+                (root / "last-acceptance.jsonl").write_text(result.stdout)
+                (root / "last-acceptance.stderr").write_text(result.stderr)
+                result.check_returncode()
+                passed = verify_acceptance_output(result.stdout)
+                print(json.dumps({"version": version, "acceptance_passed": passed}))
             finally:
                 process.terminate()
                 try:
@@ -127,6 +155,8 @@ def run(config, artifact, sha, version):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=20)
+                log.flush()
+                shutil.copyfile(work / "qemu.log", root / "last-vm.log")
 
 
 if __name__ == "__main__":

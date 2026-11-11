@@ -84,12 +84,16 @@ dependencies on the host and transfer their verified packages into the guest;
 the guest has no outbound network. Run the vendor installer and `dpkg -i` only
 there. The offline local-owner setup route is `POST /api/setup`, with `name`,
 `username`, `password`, `timezone` and `updateFirmware:false`. Wait for Network
-startup before provisioning. Never put the generated credentials in logs.
+startup before provisioning and select offline setup with `POST /api/setup/offline`. Never put the generated credentials in logs.
 
 After provisioning and checking login, shut down the VM, flatten its disk using
 `qemu-img convert -O qcow2`, and record the flattened image SHA256. Store the
-private SSH key and a JSON `{"username":"...","password":"..."}` lab credential
-file with mode 0600. Prepared images contain lab secrets and are not published.
+private SSH key and a JSON `{"api_key":"..."}` lab credential
+file with mode 0600. Create this key for the local lab owner through
+`POST /proxy/users/api/v2/user/{id}/keys`, with a name and `expired_at:null`.
+Keep the returned `data.full_api_key` private. Username/password manifests are
+also supported, but repeated acceptance provider configuration can trigger the
+console login rate limit; the local lab API key avoids that. Prepared images contain lab secrets and are not published.
 
 Example private `lab.json` (replace every path and checksum):
 
@@ -103,7 +107,7 @@ Example private `lab.json` (replace every path and checksum):
   "qemu": "/usr/bin/qemu-system-x86_64",
   "qemu_img": "/usr/bin/qemu-img",
   "provider_directory": "/private/provider",
-  "acceptance_command": ["go", "test", "-count=1", "-parallel=1", "./internal/provider/acctest", "-run", "TestAccNetwork_basic|TestAccFirewallGroup_port_group"],
+  "acceptance_command": ["go", "test", "-json", "-count=1", "-parallel=1", "./internal/provider/acctest", "-run", "TestAccNetwork_basic|TestAccFirewallGroup_port_group"],
   "startup_timeout_seconds": 900,
   "acceptance_timeout_seconds": 1200
 }
@@ -112,7 +116,8 @@ Example private `lab.json` (replace every path and checksum):
 Each run verifies the base and application checksums, creates an overlay, boots a
 new VM, installs the selected package inside its container, verifies the exact
 Network version through authenticated HTTP, and supplies an owner-only loopback
-manifest to the Go acceptance harness. The VM and overlay are removed even when
+manifest to the Go acceptance harness. A zero-test or all-skipped run fails qualification. Private diagnostics are
+retained under the runner work directory. The VM and overlay are removed even when
 installation or tests fail. Set Go cache paths and `TF_ACC_TERRAFORM_PATH` in the
 job environment. Physical provisioning, gateway routing, radio behavior, feed
 downloads and Matter discovery require separate hardware evidence.
