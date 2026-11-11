@@ -119,7 +119,8 @@ Example private `lab.json` (replace every path and checksum):
 Each run verifies the base and application checksums, creates an overlay, boots a
 new VM, installs the selected package inside its container, verifies the exact
 Network version through authenticated HTTP, and supplies an owner-only loopback
-manifest to the Go acceptance harness. A zero-test or all-skipped run fails qualification. Private diagnostics are
+manifest to the Go acceptance harness. A zero-test run or any skipped acceptance test fails qualification, including
+version-guarded resource tests on an unqualified upgrade. Private diagnostics are
 retained under the runner work directory. The VM and overlay are removed even when
 installation or tests fail. Set Go cache paths and `TF_ACC_TERRAFORM_PATH` in the
 job environment. Physical provisioning, gateway routing, radio behavior, feed
@@ -144,6 +145,8 @@ downloads and Matter discovery require separate hardware evidence.
 ```
 
 The provided user service and timer poll daily, with a small randomized delay.
+Install the failure-notice service too and adjust its coord path; it covers
+service/configuration/preflight failures before the watcher can publish a receipt.
 Adjust `ExecStart` to the installed reviewed checkout and configuration. Run the
 service manually and inspect its receipts before enabling the timer with
 `systemctl --user enable --now unifi-firmware.timer`. Installing these example
