@@ -59,8 +59,16 @@ def public_surface(spec):
         for method, operation in sorted(entry.items()):
             if method not in VERBS:
                 continue
+            security = operation.get("security", spec.get("security", []))
+            schemes = {}
+            for requirement in security:
+                for name in requirement:
+                    pointer = name.replace("~", "~0").replace("/", "~1")
+                    schemes[name] = resolve({"$ref": "#/components/securitySchemes/" + pointer})
             result.append({"path": "/integration" + path, "method": method.upper(),
                            "source": "bundled-openapi", "schema_completeness": "documented",
+                           "security": {"requirements": security, "schemes": schemes},
+                           "servers": factual(operation.get("servers", entry.get("servers", spec.get("servers", [])))),
                            "request": resolve(factual(operation.get("requestBody", {}))),
                            "parameters": resolve(factual(entry.get("parameters", []) +
                                                          operation.get("parameters", []))),
