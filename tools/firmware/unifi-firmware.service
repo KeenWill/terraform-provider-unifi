@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll and acceptance-test public UniFi firmware
+OnFailure=unifi-firmware-failure.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/unifi-provider/tools/firmware/watch.py %h/.config/unifi-firmware/watch.json
+TimeoutStartSec=2h
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true

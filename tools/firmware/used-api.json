@@ -1,0 +1,62 @@
+[
+  {
+    "path": "/integration/v1/sites",
+    "reason": "Official site identity and discovery"
+  },
+  {
+    "path": "/integration/v1/info",
+    "reason": "Controller version detection"
+  },
+  {
+    "path": "/integration/v1/sites/*/networks*",
+    "reason": "Managed VLANs and network references"
+  },
+  {
+    "path": "/integration/v1/sites/*/wifi/broadcasts*",
+    "reason": "Managed Wi-Fi broadcasts"
+  },
+  {
+    "path": "/integration/v1/sites/*/firewall/*",
+    "reason": "Firewall zones, policies, ordering and reporting"
+  },
+  {
+    "path": "/integration/v1/sites/*/devices*",
+    "reason": "Managed device identity and inventory"
+  },
+  {
+    "path": "/integration/v1/sites/*/traffic-matching-lists*",
+    "reason": "Network list compatibility"
+  },
+  {
+    "path": "/api/site/*/firewall-policies*",
+    "reason": "Private firewall policy resources"
+  },
+  {
+    "path": "/api/site/*/firewall/zone*",
+    "reason": "Private firewall zone resources"
+  },
+  {
+    "path": "/api/site/*/static-dns*",
+    "reason": "Private DNS record resources"
+  },
+  {
+    "path": "*/rest/*",
+    "reason": "Legacy network, WLAN, device, client, profile, route and group resources"
+  },
+  {
+    "path": "*/setting*",
+    "reason": "Private singleton settings"
+  },
+  {
+    "path": "*/stat/*",
+    "reason": "Controller version, optional client statistics, device refresh and port preservation"
+  },
+  {
+    "path": "*/self/*",
+    "reason": "Legacy site discovery during initialization"
+  },
+  {
+    "path": "*/cmd/*",
+    "reason": "Legacy command-backed provider operations"
+  }
+]

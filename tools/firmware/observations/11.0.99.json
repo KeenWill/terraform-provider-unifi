@@ -1,0 +1,183 @@
+{
+  "version": "11.0.99",
+  "evidence": [
+    {
+      "file": "webapps/ROOT/app-unifi/react/js/51375.dcc811dfa08fd98b03fa.js",
+      "sha256": "7e08cd6d4d5c79ec1af393d67b04a9b72818dbd26a760e45b3b9cc4e97ad468e"
+    },
+    {
+      "file": "webapps/ROOT/app-unifi/react/js/swai.7d4aac3a82085841f942.js",
+      "sha256": "ffc26ea15a1e11e1ce7d06675dde873a6448aa1221451bf004830b04866bd8d0"
+    }
+  ],
+  "operations": [
+    {
+      "path": "/api/s/{site}/rest/firewallgroup",
+      "method": "GET",
+      "source": "ui-observation",
+      "schema_completeness": "partial",
+      "request": {},
+      "responses": {
+        "unknown": "dynamic legacy REST serialization; verify in lab"
+      },
+      "feature": "external network lists",
+      "evidence_modules": [
+        "269994",
+        "861428",
+        "212429",
+        "945328",
+        "647283",
+        "323434",
+        "995668"
+      ]
+    },
+    {
+      "path": "/api/s/{site}/rest/firewallgroup",
+      "method": "POST",
+      "source": "ui-observation",
+      "schema_completeness": "partial",
+      "request": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "group_type": {
+            "enum": [
+              "address-group",
+              "ipv6-address-group",
+              "domain-group",
+              "port-group"
+            ]
+          },
+          "source": {
+            "enum": [
+              "static",
+              "dynamic"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "https-uri",
+            "maxLength": 1024
+          },
+          "update_interval_seconds": {
+            "enum": [
+              86400,
+              172800,
+              259200
+            ]
+          },
+          "group_members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "partial": true
+      },
+      "responses": {
+        "unknown": "dynamic legacy REST serialization; verify in lab"
+      },
+      "feature": "external network lists",
+      "evidence_modules": [
+        "269994",
+        "861428",
+        "212429",
+        "945328",
+        "647283",
+        "323434",
+        "995668"
+      ]
+    },
+    {
+      "path": "/api/s/{site}/rest/firewallgroup/{id}",
+      "method": "PUT",
+      "source": "ui-observation",
+      "schema_completeness": "partial",
+      "request": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "group_type": {
+            "enum": [
+              "address-group",
+              "ipv6-address-group",
+              "domain-group",
+              "port-group"
+            ]
+          },
+          "source": {
+            "enum": [
+              "static",
+              "dynamic"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "https-uri",
+            "maxLength": 1024
+          },
+          "update_interval_seconds": {
+            "enum": [
+              86400,
+              172800,
+              259200
+            ]
+          },
+          "group_members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "partial": true
+      },
+      "responses": {
+        "unknown": "dynamic legacy REST serialization; verify in lab"
+      },
+      "feature": "external network lists",
+      "evidence_modules": [
+        "269994",
+        "861428",
+        "212429",
+        "945328",
+        "647283",
+        "323434",
+        "995668"
+      ]
+    },
+    {
+      "path": "/api/s/{site}/rest/firewallgroup/{id}",
+      "method": "DELETE",
+      "source": "ui-observation",
+      "schema_completeness": "partial",
+      "request": {},
+      "responses": {
+        "unknown": "dynamic legacy REST serialization; verify in lab"
+      },
+      "feature": "external network lists",
+      "evidence_modules": [
+        "269994",
+        "861428",
+        "212429",
+        "945328",
+        "647283",
+        "323434",
+        "995668"
+      ]
+    }
+  ]
+}

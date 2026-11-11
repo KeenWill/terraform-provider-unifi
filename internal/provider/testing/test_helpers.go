@@ -73,10 +73,9 @@ func SiteAndIDImportStateIDFunc(resourceName string) func(*terraform.State) (str
 // PreCheck checks if provided environment variables are set. If not, it will fail the test.
 func PreCheck(t *testing.T) {
 	t.Helper()
-	variables := []string{
-		"UNIFI_USERNAME",
-		"UNIFI_PASSWORD",
-		"UNIFI_API",
+	variables := []string{"UNIFI_API"}
+	if os.Getenv("UNIFI_API_KEY") == "" {
+		variables = append(variables, "UNIFI_USERNAME", "UNIFI_PASSWORD")
 	}
 
 	for _, variable := range variables {
