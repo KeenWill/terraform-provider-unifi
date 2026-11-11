@@ -1,5 +1,5 @@
-// Package integration implements read-only discovery through the documented local
-// Network API. Its models must not be used as replacement write payloads.
+// Package integration implements discovery and explicitly scoped PATCH operations
+// through the documented Network API. Read models are never replacement write payloads.
 package integration
 
 import (
