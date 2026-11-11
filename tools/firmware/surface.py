@@ -76,6 +76,44 @@ def public_surface(spec):
     return result
 
 
+def signature_type(signature, start):
+    """Read one JVM field-type signature, including arrays and nested generics."""
+    end = start
+    while end < len(signature) and signature[end] == "[":
+        end += 1
+    if end >= len(signature):
+        raise ValueError("truncated Java signature")
+    if signature[end] in "ZBCSIJFDV":
+        return signature[start:end + 1], end + 1
+    if signature[end] not in "LT":
+        raise ValueError("unsupported Java signature")
+    depth = 0
+    for index in range(end, len(signature)):
+        char = signature[index]
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+            if depth < 0:
+                raise ValueError("unbalanced Java signature")
+        elif char == ";" and depth == 0:
+            return signature[start:index + 1], index + 1
+    raise ValueError("unterminated Java signature")
+
+
+def parameter_signatures(signature):
+    if not signature:
+        return []
+    index = signature.index("(") + 1
+    result = []
+    while index < len(signature) and signature[index] != ")":
+        raw, index = signature_type(signature, index)
+        result.append(raw)
+    if index >= len(signature):
+        raise ValueError("unterminated method signature")
+    return result
+
+
 def immediate_generic(signature):
     """Return the first immediate type argument, retaining nested containers."""
     if not signature or "<" not in signature:
@@ -85,23 +123,8 @@ def immediate_generic(signature):
         start += 1
     if signature[start:start + 1] in {"", "*", "-", "T"}:
         return None
-    depth = 0
-    end = start
-    while end < len(signature):
-        char = signature[end]
-        if char == "<":
-            depth += 1
-        elif char == ">":
-            if depth == 0:
-                return None
-            depth -= 1
-        elif char == ";" and depth == 0:
-            raw = signature[start:end + 1]
-            return re.sub(r"<.*>", "", raw), raw
-        elif char in "ZBCSIJFD" and end == start:
-            return char, char
-        end += 1
-    return None
+    raw, _ = signature_type(signature, start)
+    return re.sub(r"<.*>", "", raw), raw
 
 
 def private_surface(archive):
@@ -115,7 +138,8 @@ def private_surface(archive):
                 return None
             if info.file_size > 16 * 1024 * 1024:
                 raise ValueError("oversized class")
-            cache[name] = parse(archive.read(info))
+            data = archive.read(info)
+            cache[name] = {**parse(data), "class_sha256": hashlib.sha256(data).hexdigest()}
         return cache[name]
 
     def annotations_by_name(items):
@@ -164,15 +188,17 @@ def private_surface(archive):
             properties[prop] = item
             if "NotNull" in ann or ann.get("JsonProperty", {}).get("required"):
                 required.append(prop)
+        inherited = None
         parent = cls["parent"]
         if parent and parent != "java/lang/Object":
             inherited = schema("L" + parent + ";", seen=seen | {name})
             properties = {**inherited.get("properties", {}), **properties}
             required.extend(inherited.get("required", []))
         if not properties:
-            return {"unknown": "no explicit serialized fields"}
+            return {"unknown": "no explicit serialized fields", "class_sha256": cls["class_sha256"], "superclass": inherited}
         return {"type": "object", "properties": dict(sorted(properties.items())),
-                "required": sorted(set(required)), "partial": True}
+                "required": sorted(set(required)), "partial": True,
+                "class_sha256": cls["class_sha256"], "superclass": inherited}
 
     routes = []
     for info in archive.infolist():
@@ -190,12 +216,15 @@ def private_surface(archive):
             if not method_routes:
                 continue
             types = descriptors(member["descriptor"])
+            generic_parameters = parameter_signatures(member.get("signature"))
+            if generic_parameters and len(generic_parameters) != len(types) - 1:
+                raise ValueError("generic parameters do not match method descriptor")
             requests = []
             for i, annotations in enumerate(member["parameters"]):
                 if "RequestBody" in annotations_by_name(annotations):
                     if i >= len(types) - 1:
                         raise ValueError("request-body parameter does not match descriptor")
-                    requests.append(schema(types[i]))
+                    requests.append(schema(types[i], generic_parameters[i] if generic_parameters else None))
             response_signature = (member.get("signature", "").split(")", 1) + [""])[1]
             response = schema(types[-1], response_signature)
             for prefixes, parent_verbs in bases:
