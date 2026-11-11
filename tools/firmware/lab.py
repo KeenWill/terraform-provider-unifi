@@ -24,13 +24,18 @@ from shutdown import install_shutdown_handler
 
 def verify_acceptance_output(output):
     passed = set()
+    skipped = set()
     for line in output.splitlines():
         try:
             event = json.loads(line)
         except ValueError:
             continue
+        if event.get("Action") == "skip" and event.get("Test", "").startswith("TestAcc"):
+            skipped.add(event["Test"])
         if event.get("Action") == "pass" and event.get("Test", "").startswith("TestAcc"):
             passed.add(event["Test"])
+    if skipped:
+        raise RuntimeError("acceptance selection skipped required tests: " + ", ".join(sorted(skipped)))
     if not passed:
         raise RuntimeError("acceptance command passed no TestAcc tests; use go test -json and a matching selector")
     return sorted(passed)

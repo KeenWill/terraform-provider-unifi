@@ -1,5 +1,6 @@
 [Unit]
 Description=Poll and acceptance-test public UniFi firmware
+OnFailure=unifi-firmware-failure.service
 
 [Service]
 Type=oneshot
