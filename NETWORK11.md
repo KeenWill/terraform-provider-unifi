@@ -153,3 +153,22 @@ Public API documentation and UI code establish contracts to investigate.
 Successful live GETs establish current read shapes. Neither establishes
 acceptance of a mutation. All mutation acceptance tests belong on the isolated
 Network 11 controller; no production gateway writes are part of this work.
+
+## Official user-policy flow reporting
+
+`unifi_firewall_policy_flow_reporting` owns only `reportFlowEnabled` on an
+existing user-defined policy. It requires an API key and separate official site
+and policy UUIDs. Discover them through `/integration/v1/sites` and
+`/integration/v1/sites/{siteId}/firewall/policies`; do not reuse legacy IDs.
+Before writes it checks `/integration/v1/info` for the qualified version
+11.0.99, reads the current policy and requires `metadata.origin=USER_DEFINED`
+and a boolean `reportFlowEnabled`. It PATCHes exactly that boolean and re-reads
+to verify. No full-policy replacement, private fallback or mutation retry occurs.
+
+The disposable controller acceptance test creates a throwaway user policy,
+enables reporting, imports state, disables reporting and deletes the fixture.
+Every update checks that all other official policy fields remain equal.
+Rollback is the same one-field PATCH with the previously recorded boolean.
+Removing the Terraform resource only releases ownership; it does not reset the
+controller. Predefined-policy exclusions and physical flow ingestion remain
+unqualified, so this resource refuses predefined policies.
