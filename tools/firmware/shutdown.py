@@ -2,7 +2,7 @@
 import signal
 
 
-class ShutdownRequested(InterruptedError):
+class ShutdownRequested(BaseException):
     """A service stop must escape ordinary per-target failure handling."""
 
 

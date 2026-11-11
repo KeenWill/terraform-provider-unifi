@@ -140,7 +140,8 @@ class SurfaceTests(unittest.TestCase):
 
     def test_used_inventory_covers_version_and_client_statistics(self):
         rules = json.loads((Path(__file__).parent / "used-api.json").read_text())
-        for path in ["/api/s/{site}/stat/sysinfo", "/api/s/{site}/stat/user/{mac}"]:
+        for path in ["/api/s/{site}/stat/sysinfo", "/api/s/{site}/stat/user/{mac}",
+                     "/api/site/{site}/static-dns", "/api/site/{site}/static-dns/{id}"]:
             before = {"format_version": 1, "application_version": "a", "operations": []}
             after = {**before, "operations": [{"source": "spring-annotation", "path": path, "method": "GET"}]}
             self.assertTrue(pipeline.compare(before, after, rules)["touches_used_api"])
