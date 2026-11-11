@@ -498,26 +498,26 @@ func (r *firewallZonePolicyOrderResource) ImportState(ctx context.Context, req r
 		return
 	}
 
-	// ImportIDWithSite splits on the FIRST colon, so `site:source:dest` yields
-	// site=`site`, id=`source:dest`.
-	id, site := base.ImportIDWithSite(req, resp)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	parts := strings.SplitN(id, ":", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	parts := strings.Split(req.ID, ":")
+	if len(parts) != 3 {
 		resp.Diagnostics.AddError(
 			"Invalid import ID",
 			"Expected import ID in the format `<site>:<source_zone_id>:<destination_zone_id>`",
 		)
 		return
 	}
+	// Validate each zone identity with the ordinary two-segment importer, but
+	// never pass the three-segment composite through that parser.
+	source, site := base.ImportIDWithSite(resource.ImportStateRequest{ID: parts[0] + ":" + parts[1]}, resp)
+	destination, _ := base.ImportIDWithSite(resource.ImportStateRequest{ID: parts[0] + ":" + parts[2]}, resp)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	model := FirewallZonePolicyOrderModel{}
-	model.SourceZoneID = types.StringValue(parts[0])
-	model.DestinationZoneID = types.StringValue(parts[1])
-	model.SetID(id)
+	model.SourceZoneID = types.StringValue(source)
+	model.DestinationZoneID = types.StringValue(destination)
+	model.SetID(source + ":" + destination)
 	model.SetSite(site)
 
 	policies, err := r.GetClient().ListFirewallZonePolicy(ctx, site)

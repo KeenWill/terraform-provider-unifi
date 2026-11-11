@@ -346,9 +346,10 @@ func resourceWLANGetResourceData(d *schema.ResourceData, meta interface{}) (*uni
 	if err != nil {
 		return nil, err
 	}
-	bandsConfigured := false
+	bandsConfigured, legacyBandConfigured := false, false
 	if raw := d.GetRawConfig(); !raw.IsNull() {
 		bandsConfigured = !raw.GetAttr("wlan_bands").IsNull()
+		legacyBandConfigured = !raw.GetAttr("wlan_band").IsNull()
 	}
 	settingPreference := ""
 	if bandsConfigured {
@@ -367,6 +368,11 @@ func resourceWLANGetResourceData(d *schema.ResourceData, meta interface{}) (*uni
 		settingPreference = "manual"
 	} else {
 		wlanBands = nil
+		if !legacyBandConfigured {
+			// Both attributes are computed when omitted. Do not send an inherited
+			// legacy value on an unrelated update: it cannot represent 6 GHz.
+			wlanBand = ""
+		}
 	}
 
 	scheduleList, _ := d.Get("schedule").([]interface{})
