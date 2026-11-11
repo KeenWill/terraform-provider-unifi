@@ -5,9 +5,11 @@ import (
 	"errors"
 
 	"github.com/filipowm/go-unifi/unifi"
-	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+
+	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
+	"github.com/filipowm/terraform-provider-unifi/internal/provider/utils"
 )
 
 func ResourceUserGroup() *schema.Resource {
@@ -75,19 +77,19 @@ func ResourceUserGroup() *schema.Resource {
 }
 
 func resourceUserGroupCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
-
-	req, err := resourceUserGroupGetResourceData(d)
-	if err != nil {
-		return diag.FromErr(err)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
 	}
 
-	site := d.Get("site").(string)
+	req := resourceUserGroupGetResourceData(d)
+
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
 
-	resp, err := c.CreateUserGroup(context.TODO(), site, req)
+	resp, err := c.CreateUserGroup(ctx, site, req)
 	if err != nil {
 		return diag.FromErr(err)
 	}
@@ -97,33 +99,46 @@ func resourceUserGroupCreate(ctx context.Context, d *schema.ResourceData, meta i
 	return resourceUserGroupSetResourceData(resp, d)
 }
 
-func resourceUserGroupGetResourceData(d *schema.ResourceData) (*unifi.UserGroup, error) {
+func resourceUserGroupGetResourceData(d *schema.ResourceData) *unifi.UserGroup {
+	name, _ := d.Get("name").(string)
+	qosRateMaxDown, _ := d.Get("qos_rate_max_down").(int)
+	qosRateMaxUp, _ := d.Get("qos_rate_max_up").(int)
+
 	return &unifi.UserGroup{
-		Name:           d.Get("name").(string),
-		QOSRateMaxDown: d.Get("qos_rate_max_down").(int),
-		QOSRateMaxUp:   d.Get("qos_rate_max_up").(int),
-	}, nil
+		Name:           name,
+		QOSRateMaxDown: qosRateMaxDown,
+		QOSRateMaxUp:   qosRateMaxUp,
+	}
 }
 
 func resourceUserGroupSetResourceData(resp *unifi.UserGroup, d *schema.ResourceData) diag.Diagnostics {
-	d.Set("name", resp.Name)
-	d.Set("qos_rate_max_down", resp.QOSRateMaxDown)
-	d.Set("qos_rate_max_up", resp.QOSRateMaxUp)
+	if err := d.Set("name", resp.Name); err != nil {
+		return diag.FromErr(err)
+	}
+	if err := d.Set("qos_rate_max_down", resp.QOSRateMaxDown); err != nil {
+		return diag.FromErr(err)
+	}
+	if err := d.Set("qos_rate_max_up", resp.QOSRateMaxUp); err != nil {
+		return diag.FromErr(err)
+	}
 
 	return nil
 }
 
 func resourceUserGroupRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	id := d.Id()
 
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
 
-	resp, err := c.GetUserGroup(context.TODO(), site, id)
+	resp, err := c.GetUserGroup(ctx, site, id)
 	if errors.Is(err, unifi.ErrNotFound) {
 		d.SetId("")
 		return nil
@@ -136,39 +151,52 @@ func resourceUserGroupRead(ctx context.Context, d *schema.ResourceData, meta int
 }
 
 func resourceUserGroupUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
-
-	req, err := resourceUserGroupGetResourceData(d)
-	if err != nil {
-		return diag.FromErr(err)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
 	}
+
+	req := resourceUserGroupGetResourceData(d)
 
 	req.ID = d.Id()
 
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
 	req.SiteID = site
 
-	resp, err := c.UpdateUserGroup(context.TODO(), site, req)
+	// go-unifi v1.9.2's updateUserGroup converts a successful-but-empty PUT response
+	// into unifi.ErrNotFound (see utils.ReReadOnUpdateNotFound / issue #98); re-read
+	// to tell a spurious error from a genuine out-of-band deletion.
+	resp, err := c.UpdateUserGroup(ctx, site, req)
+	resp, found, err := utils.ReReadOnUpdateNotFound(resp, err, func() (*unifi.UserGroup, error) {
+		return c.GetUserGroup(ctx, site, req.ID)
+	})
 	if err != nil {
 		return diag.FromErr(err)
+	}
+	if !found {
+		d.SetId("")
+		return nil
 	}
 
 	return resourceUserGroupSetResourceData(resp, d)
 }
 
 func resourceUserGroupDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	id := d.Id()
 
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
-	err := c.DeleteUserGroup(context.TODO(), site, id)
+	err := c.DeleteUserGroup(ctx, site, id)
 	if errors.Is(err, unifi.ErrNotFound) {
 		return nil
 	}

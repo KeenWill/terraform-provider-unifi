@@ -2,37 +2,52 @@ package base
 
 import (
 	"context"
+	"errors"
+	"strings"
+
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
-	"strings"
 )
 
-// for Terraform Plugin SDK v2
+// for Terraform Plugin SDK v2.
 func ImportSiteAndID(_ context.Context, d *schema.ResourceData, _ interface{}) ([]*schema.ResourceData, error) {
-	if id := d.Id(); strings.Contains(id, ":") {
-		importParts := strings.SplitN(id, ":", 2)
-		d.SetId(importParts[1])
-		d.Set("site", importParts[0])
+	site, id, err := parseLegacyImport(d.Id(), false)
+	if err != nil {
+		return nil, err
 	}
+	if site != "" {
+		if err := d.Set("site", site); err != nil {
+			return nil, err
+		}
+	}
+	d.SetId(id)
 	return []*schema.ResourceData{d}, nil
 }
 
-// for Terraform Plugin Framework
+// for Terraform Plugin Framework.
 func ImportIDWithSite(req resource.ImportStateRequest, resp *resource.ImportStateResponse) (string, string) {
-	id := req.ID
-	if id == "" {
-		resp.Diagnostics.AddError("Invalid ID", "ID is required")
+	site, id, err := parseLegacyImport(req.ID, true)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid ID", err.Error())
 		return "", ""
 	}
+	return id, site
+}
 
-	if strings.Contains(id, ":") {
-		importParts := strings.SplitN(id, ":", 2)
-		if len(importParts) == 2 {
-			return importParts[1], importParts[0]
-		}
-		resp.Diagnostics.AddError("Invalid ID", "ID contains too many colon-separated parts. Format should be 'site:id'")
-		return "", ""
+// Legacy IDs remain opaque: Mongo IDs, UUIDs and future identifiers are valid.
+// A UUID here still belongs to the legacy backend; it is not an Integration ID.
+func parseLegacyImport(value string, requireSite bool) (string, string, error) {
+	parts := strings.Split(value, ":")
+	if len(parts) > 2 || (requireSite && len(parts) != 2) {
+		return "", "", errors.New("expected legacy import in site:id format")
 	}
-	resp.Diagnostics.AddError("Invalid ID", "ID does not contain site part. Format should be 'site:id'")
-	return id, ""
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || strings.TrimSpace(part) != part || strings.ContainsAny(part, "/\\?#%\x00\r\n") {
+			return "", "", errors.New("legacy import contains an empty or unsafe identity segment")
+		}
+	}
+	if len(parts) == 1 {
+		return "", parts[0], nil
+	}
+	return parts[0], parts[1], nil
 }

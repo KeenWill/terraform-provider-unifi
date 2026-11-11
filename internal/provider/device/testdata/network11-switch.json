@@ -1,0 +1,58 @@
+{
+  "meta": {
+    "rc": "ok"
+  },
+  "data": [
+    {
+      "model": "US16P150",
+      "type": "usw",
+      "version": "4.0.66.10832",
+      "state": 1,
+      "port_overrides": [
+        {
+          "poe_mode": "auto",
+          "portconf_id": "000000000000000000000002",
+          "port_security_mac_address": [],
+          "autoneg": true,
+          "stp_port_mode": true,
+          "port_idx": 1,
+          "network11_unknown_setting": {
+            "enabled": true
+          }
+        },
+        {
+          "poe_mode": "off",
+          "port_idx": 2,
+          "portconf_id": "000000000000000000000002",
+          "network11_unknown_setting": {
+            "enabled": true
+          }
+        },
+        {
+          "poe_mode": "auto",
+          "port_idx": 3,
+          "portconf_id": "000000000000000000000002",
+          "network11_unknown_setting": {
+            "enabled": true
+          }
+        },
+        {
+          "poe_mode": "auto",
+          "port_idx": 4,
+          "portconf_id": "000000000000000000000002",
+          "network11_unknown_setting": {
+            "enabled": true
+          }
+        }
+      ],
+      "config_network": {
+        "ip": "192.0.2.10",
+        "type": "dhcp"
+      },
+      "_id": "00000000-0000-4000-8000-000000000002",
+      "mac": "02:00:00:00:00:01",
+      "name": "fixture-device",
+      "mgmt_network_id": "00000000-0000-4000-8000-000000000012"
+    }
+  ]
+}

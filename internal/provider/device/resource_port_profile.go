@@ -3,13 +3,15 @@ package device
 import (
 	"context"
 	"errors"
+
 	"github.com/filipowm/terraform-provider-unifi/internal/provider/utils"
 
 	"github.com/filipowm/go-unifi/unifi"
-	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+
+	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
 )
 
 func ResourcePortProfile() *schema.Resource {
@@ -97,7 +99,11 @@ func ResourcePortProfile() *schema.Resource {
 					"Examples:\n" +
 					"  * Use 'all' for uplink ports or connections to VLAN-aware devices\n" +
 					"  * Use 'native' for end-user devices or simple network connections\n" +
-					"  * Use 'customize' to create a selective trunk port (e.g., for a server needing access to specific VLANs)",
+					"  * Use 'customize' to create a selective trunk port (e.g., for a server needing access to specific VLANs)\n\n" +
+					"~> **Note:** For an access port configured only with `native_networkconf_id` the controller " +
+					"normalizes the stored mode to `customize`. With the default value of `native` this currently " +
+					"results in a non-failing perpetual diff (`~ forward = \"customize\" -> \"native\"`) on every plan. " +
+					"To avoid it, set `forward = \"customize\"` explicitly. See issue #98.",
 				Type:         schema.TypeString,
 				Optional:     true,
 				Default:      "native",
@@ -369,14 +375,17 @@ func ResourcePortProfile() *schema.Resource {
 }
 
 func resourcePortProfileCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	req, err := resourcePortProfileGetResourceData(d)
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
@@ -391,102 +400,148 @@ func resourcePortProfileCreate(ctx context.Context, d *schema.ResourceData, meta
 }
 
 func resourcePortProfileGetResourceData(d *schema.ResourceData) (*unifi.PortProfile, error) {
-	portSecurityMacAddress, err := utils.SetToStringSlice(d.Get("port_security_mac_address").(*schema.Set))
+	portSecurityMacAddressSet, _ := d.Get("port_security_mac_address").(*schema.Set)
+	portSecurityMacAddress, err := utils.SetToStringSlice(portSecurityMacAddressSet)
 	if err != nil {
 		return nil, err
 	}
 
-	excludedNetworkIDs, err := utils.SetToStringSlice(d.Get("excluded_network_ids").(*schema.Set))
+	excludedNetworkIDsSet, _ := d.Get("excluded_network_ids").(*schema.Set)
+	excludedNetworkIDs, err := utils.SetToStringSlice(excludedNetworkIDsSet)
 	if err != nil {
 		return nil, err
 	}
+
+	autoneg, _ := d.Get("autoneg").(bool)
+	dot1XCtrl, _ := d.Get("dot1x_ctrl").(string)
+	dot1XIDleTimeout, _ := d.Get("dot1x_idle_timeout").(int)
+	egressRateLimitKbps, _ := d.Get("egress_rate_limit_kbps").(int)
+	egressRateLimitKbpsEnabled, _ := d.Get("egress_rate_limit_kbps_enabled").(bool)
+	forward, _ := d.Get("forward").(string)
+	fullDuplex, _ := d.Get("full_duplex").(bool)
+	isolation, _ := d.Get("isolation").(bool)
+	lldpmedEnabled, _ := d.Get("lldpmed_enabled").(bool)
+	lldpmedNotifyEnabled, _ := d.Get("lldpmed_notify_enabled").(bool)
+	nativeNetworkID, _ := d.Get("native_networkconf_id").(string)
+	name, _ := d.Get("name").(string)
+	opMode, _ := d.Get("op_mode").(string)
+	poeMode, _ := d.Get("poe_mode").(string)
+	portSecurityEnabled, _ := d.Get("port_security_enabled").(bool)
+	priorityQueue1Level, _ := d.Get("priority_queue1_level").(int)
+	priorityQueue2Level, _ := d.Get("priority_queue2_level").(int)
+	priorityQueue3Level, _ := d.Get("priority_queue3_level").(int)
+	priorityQueue4Level, _ := d.Get("priority_queue4_level").(int)
+	speed, _ := d.Get("speed").(int)
+	stormctrlBcastEnabled, _ := d.Get("stormctrl_bcast_enabled").(bool)
+	stormctrlBcastLevel, _ := d.Get("stormctrl_bcast_level").(int)
+	stormctrlBcastRate, _ := d.Get("stormctrl_bcast_rate").(int)
+	stormctrlMcastEnabled, _ := d.Get("stormctrl_mcast_enabled").(bool)
+	stormctrlMcastLevel, _ := d.Get("stormctrl_mcast_level").(int)
+	stormctrlMcastRate, _ := d.Get("stormctrl_mcast_rate").(int)
+	stormctrlType, _ := d.Get("stormctrl_type").(string)
+	stormctrlUcastEnabled, _ := d.Get("stormctrl_ucast_enabled").(bool)
+	stormctrlUcastLevel, _ := d.Get("stormctrl_ucast_level").(int)
+	stormctrlUcastRate, _ := d.Get("stormctrl_ucast_rate").(int)
+	stpPortMode, _ := d.Get("stp_port_mode").(bool)
+	taggedVLANMgmt, _ := d.Get("tagged_vlan_mgmt").(string)
+	voiceNetworkID, _ := d.Get("voice_networkconf_id").(string)
 
 	return &unifi.PortProfile{
-		Autoneg:                      d.Get("autoneg").(bool),
-		Dot1XCtrl:                    d.Get("dot1x_ctrl").(string),
-		Dot1XIDleTimeout:             d.Get("dot1x_idle_timeout").(int),
-		EgressRateLimitKbps:          d.Get("egress_rate_limit_kbps").(int),
-		EgressRateLimitKbpsEnabled:   d.Get("egress_rate_limit_kbps_enabled").(bool),
+		Autoneg:                      autoneg,
+		Dot1XCtrl:                    dot1XCtrl,
+		Dot1XIDleTimeout:             dot1XIDleTimeout,
+		EgressRateLimitKbps:          egressRateLimitKbps,
+		EgressRateLimitKbpsEnabled:   egressRateLimitKbpsEnabled,
 		ExcludedNetworkIDs:           excludedNetworkIDs,
-		Forward:                      d.Get("forward").(string),
-		FullDuplex:                   d.Get("full_duplex").(bool),
-		Isolation:                    d.Get("isolation").(bool),
-		LldpmedEnabled:               d.Get("lldpmed_enabled").(bool),
-		LldpmedNotifyEnabled:         d.Get("lldpmed_notify_enabled").(bool),
-		NATiveNetworkID:              d.Get("native_networkconf_id").(string),
-		Name:                         d.Get("name").(string),
-		OpMode:                       d.Get("op_mode").(string),
-		PoeMode:                      d.Get("poe_mode").(string),
-		PortSecurityEnabled:          d.Get("port_security_enabled").(bool),
+		Forward:                      forward,
+		FullDuplex:                   fullDuplex,
+		Isolation:                    isolation,
+		LldpmedEnabled:               lldpmedEnabled,
+		LldpmedNotifyEnabled:         lldpmedNotifyEnabled,
+		NATiveNetworkID:              nativeNetworkID,
+		Name:                         name,
+		OpMode:                       opMode,
+		PoeMode:                      poeMode,
+		PortSecurityEnabled:          portSecurityEnabled,
 		PortSecurityMACAddress:       portSecurityMacAddress,
-		PriorityQueue1Level:          d.Get("priority_queue1_level").(int),
-		PriorityQueue2Level:          d.Get("priority_queue2_level").(int),
-		PriorityQueue3Level:          d.Get("priority_queue3_level").(int),
-		PriorityQueue4Level:          d.Get("priority_queue4_level").(int),
-		Speed:                        d.Get("speed").(int),
-		StormctrlBroadcastastEnabled: d.Get("stormctrl_bcast_enabled").(bool),
-		StormctrlBroadcastastLevel:   d.Get("stormctrl_bcast_level").(int),
-		StormctrlBroadcastastRate:    d.Get("stormctrl_bcast_rate").(int),
-		StormctrlMcastEnabled:        d.Get("stormctrl_mcast_enabled").(bool),
-		StormctrlMcastLevel:          d.Get("stormctrl_mcast_level").(int),
-		StormctrlMcastRate:           d.Get("stormctrl_mcast_rate").(int),
-		StormctrlType:                d.Get("stormctrl_type").(string),
-		StormctrlUcastEnabled:        d.Get("stormctrl_ucast_enabled").(bool),
-		StormctrlUcastLevel:          d.Get("stormctrl_ucast_level").(int),
-		StormctrlUcastRate:           d.Get("stormctrl_ucast_rate").(int),
-		StpPortMode:                  d.Get("stp_port_mode").(bool),
-		TaggedVLANMgmt:               d.Get("tagged_vlan_mgmt").(string),
-		VoiceNetworkID:               d.Get("voice_networkconf_id").(string),
+		PriorityQueue1Level:          priorityQueue1Level,
+		PriorityQueue2Level:          priorityQueue2Level,
+		PriorityQueue3Level:          priorityQueue3Level,
+		PriorityQueue4Level:          priorityQueue4Level,
+		Speed:                        speed,
+		StormctrlBroadcastastEnabled: stormctrlBcastEnabled,
+		StormctrlBroadcastastLevel:   stormctrlBcastLevel,
+		StormctrlBroadcastastRate:    stormctrlBcastRate,
+		StormctrlMcastEnabled:        stormctrlMcastEnabled,
+		StormctrlMcastLevel:          stormctrlMcastLevel,
+		StormctrlMcastRate:           stormctrlMcastRate,
+		StormctrlType:                stormctrlType,
+		StormctrlUcastEnabled:        stormctrlUcastEnabled,
+		StormctrlUcastLevel:          stormctrlUcastLevel,
+		StormctrlUcastRate:           stormctrlUcastRate,
+		StpPortMode:                  stpPortMode,
+		TaggedVLANMgmt:               taggedVLANMgmt,
+		VoiceNetworkID:               voiceNetworkID,
 	}, nil
 }
 
 func resourcePortProfileSetResourceData(resp *unifi.PortProfile, d *schema.ResourceData, site string) diag.Diagnostics {
-	d.Set("site", site)
-	d.Set("autoneg", resp.Autoneg)
-	d.Set("dot1x_ctrl", resp.Dot1XCtrl)
-	d.Set("dot1x_idle_timeout", resp.Dot1XIDleTimeout)
-	d.Set("egress_rate_limit_kbps", resp.EgressRateLimitKbps)
-	d.Set("egress_rate_limit_kbps_enabled", resp.EgressRateLimitKbpsEnabled)
-	d.Set("excluded_network_ids", utils.StringSliceToSet(resp.ExcludedNetworkIDs))
-	d.Set("forward", resp.Forward)
-	d.Set("full_duplex", resp.FullDuplex)
-	d.Set("isolation", resp.Isolation)
-	d.Set("lldpmed_enabled", resp.LldpmedEnabled)
-	d.Set("lldpmed_notify_enabled", resp.LldpmedNotifyEnabled)
-	d.Set("native_networkconf_id", resp.NATiveNetworkID)
-	d.Set("name", resp.Name)
-	d.Set("op_mode", resp.OpMode)
-	d.Set("poe_mode", resp.PoeMode)
-	d.Set("port_security_enabled", resp.PortSecurityEnabled)
-	d.Set("port_security_mac_address", utils.StringSliceToSet(resp.PortSecurityMACAddress))
-	d.Set("priority_queue1_level", resp.PriorityQueue1Level)
-	d.Set("priority_queue2_level", resp.PriorityQueue2Level)
-	d.Set("priority_queue3_level", resp.PriorityQueue3Level)
-	d.Set("priority_queue4_level", resp.PriorityQueue4Level)
-	d.Set("speed", resp.Speed)
-	d.Set("stormctrl_bcast_enabled", resp.StormctrlBroadcastastEnabled)
-	d.Set("stormctrl_bcast_level", resp.StormctrlBroadcastastLevel)
-	d.Set("stormctrl_bcast_rate", resp.StormctrlBroadcastastRate)
-	d.Set("stormctrl_mcast_enabled", resp.StormctrlMcastEnabled)
-	d.Set("stormctrl_mcast_level", resp.StormctrlMcastLevel)
-	d.Set("stormctrl_mcast_rate", resp.StormctrlMcastRate)
-	d.Set("stormctrl_type", resp.StormctrlType)
-	d.Set("stormctrl_ucast_enabled", resp.StormctrlUcastEnabled)
-	d.Set("stormctrl_ucast_level", resp.StormctrlUcastLevel)
-	d.Set("stormctrl_ucast_rate", resp.StormctrlUcastRate)
-	d.Set("stp_port_mode", resp.StpPortMode)
-	d.Set("tagged_vlan_mgmt", resp.TaggedVLANMgmt)
-	d.Set("voice_networkconf_id", resp.VoiceNetworkID)
+	values := map[string]interface{}{
+		"site":                           site,
+		"autoneg":                        resp.Autoneg,
+		"dot1x_ctrl":                     resp.Dot1XCtrl,
+		"dot1x_idle_timeout":             resp.Dot1XIDleTimeout,
+		"egress_rate_limit_kbps":         resp.EgressRateLimitKbps,
+		"egress_rate_limit_kbps_enabled": resp.EgressRateLimitKbpsEnabled,
+		"excluded_network_ids":           utils.StringSliceToSet(resp.ExcludedNetworkIDs),
+		"forward":                        resp.Forward,
+		"full_duplex":                    resp.FullDuplex,
+		"isolation":                      resp.Isolation,
+		"lldpmed_enabled":                resp.LldpmedEnabled,
+		"lldpmed_notify_enabled":         resp.LldpmedNotifyEnabled,
+		"native_networkconf_id":          resp.NATiveNetworkID,
+		"name":                           resp.Name,
+		"op_mode":                        resp.OpMode,
+		"poe_mode":                       resp.PoeMode,
+		"port_security_enabled":          resp.PortSecurityEnabled,
+		"port_security_mac_address":      utils.StringSliceToSet(resp.PortSecurityMACAddress),
+		"priority_queue1_level":          resp.PriorityQueue1Level,
+		"priority_queue2_level":          resp.PriorityQueue2Level,
+		"priority_queue3_level":          resp.PriorityQueue3Level,
+		"priority_queue4_level":          resp.PriorityQueue4Level,
+		"speed":                          resp.Speed,
+		"stormctrl_bcast_enabled":        resp.StormctrlBroadcastastEnabled,
+		"stormctrl_bcast_level":          resp.StormctrlBroadcastastLevel,
+		"stormctrl_bcast_rate":           resp.StormctrlBroadcastastRate,
+		"stormctrl_mcast_enabled":        resp.StormctrlMcastEnabled,
+		"stormctrl_mcast_level":          resp.StormctrlMcastLevel,
+		"stormctrl_mcast_rate":           resp.StormctrlMcastRate,
+		"stormctrl_type":                 resp.StormctrlType,
+		"stormctrl_ucast_enabled":        resp.StormctrlUcastEnabled,
+		"stormctrl_ucast_level":          resp.StormctrlUcastLevel,
+		"stormctrl_ucast_rate":           resp.StormctrlUcastRate,
+		"stp_port_mode":                  resp.StpPortMode,
+		"tagged_vlan_mgmt":               resp.TaggedVLANMgmt,
+		"voice_networkconf_id":           resp.VoiceNetworkID,
+	}
+	for k, v := range values {
+		if err := d.Set(k, v); err != nil {
+			return diag.FromErr(err)
+		}
+	}
 
 	return nil
 }
 
 func resourcePortProfileRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	id := d.Id()
 
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
@@ -503,7 +558,10 @@ func resourcePortProfileRead(ctx context.Context, d *schema.ResourceData, meta i
 }
 
 func resourcePortProfileUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	req, err := resourcePortProfileGetResourceData(d)
 	if err != nil {
@@ -512,26 +570,41 @@ func resourcePortProfileUpdate(ctx context.Context, d *schema.ResourceData, meta
 
 	req.ID = d.Id()
 
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
 	req.SiteID = site
 
+	// go-unifi v1.9.2's updatePortProfile converts a successful-but-empty PUT
+	// response into unifi.ErrNotFound (see utils.ReReadOnUpdateNotFound / issue #98);
+	// re-read to tell a spurious error from a genuine out-of-band deletion.
 	resp, err := c.UpdatePortProfile(ctx, site, req)
+	resp, found, err := utils.ReReadOnUpdateNotFound(resp, err, func() (*unifi.PortProfile, error) {
+		return c.GetPortProfile(ctx, site, req.ID)
+	})
 	if err != nil {
 		return diag.FromErr(err)
+	}
+	if !found {
+		// The profile is genuinely gone; clear state so it is recreated on the next
+		// apply (mirrors resourcePortProfileRead and resourcePortProfileDelete).
+		d.SetId("")
+		return nil
 	}
 
 	return resourcePortProfileSetResourceData(resp, d, site)
 }
 
 func resourcePortProfileDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	id := d.Id()
 
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}

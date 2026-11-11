@@ -1,0 +1,76 @@
+{
+  "meta": {
+    "rc": "ok"
+  },
+  "data": [
+    {
+      "_id": "ips-fixture-id",
+      "key": "ips",
+      "ips_mode": "ids",
+      "enabled_networks": [
+        "network-0",
+        "network-1",
+        "network-2",
+        "network-3"
+      ],
+      "enabled_categories": [
+        "category-0",
+        "category-1",
+        "category-2",
+        "category-3",
+        "category-4",
+        "category-5",
+        "category-6",
+        "category-7",
+        "category-8",
+        "category-9",
+        "category-10",
+        "category-11",
+        "category-12",
+        "category-13",
+        "category-14",
+        "category-15",
+        "category-16",
+        "category-17",
+        "category-18",
+        "category-19",
+        "category-20",
+        "category-21",
+        "category-22",
+        "category-23",
+        "category-24",
+        "category-25",
+        "category-26",
+        "category-27",
+        "category-28",
+        "category-29",
+        "category-30",
+        "category-31",
+        "category-32",
+        "category-33",
+        "category-34"
+      ],
+      "advanced_filtering_preference": "manual",
+      "suppression": {
+        "alerts": [
+          {
+            "signature": "fixture"
+          }
+        ],
+        "whitelist": []
+      },
+      "future_setting": {
+        "preserve": true
+      }
+    },
+    {
+      "_id": "teleport-fixture-id",
+      "key": "teleport",
+      "enabled": true,
+      "subnet_cidr": "192.0.2.0/24",
+      "future_setting": {
+        "preserve": true
+      }
+    }
+  ]
+}

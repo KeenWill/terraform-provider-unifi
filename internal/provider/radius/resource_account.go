@@ -5,10 +5,12 @@ import (
 	"errors"
 
 	"github.com/filipowm/go-unifi/unifi"
-	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+
+	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
+	"github.com/filipowm/terraform-provider-unifi/internal/provider/utils"
 )
 
 func ResourceAccount() *schema.Resource {
@@ -18,14 +20,15 @@ func ResourceAccount() *schema.Resource {
 			"  * WPA2/WPA3-Enterprise wireless authentication\n" +
 			"  * 802.1X wired authentication\n" +
 			"  * MAC-based device authentication\n" +
-			"  * VLAN assignment through RADIUS attributes\n\n" +
+			"  * Dynamic VLAN assignment through RADIUS attributes (see the `vlan` attribute)\n\n" +
 			"Important Notes:\n" +
 			"1. For MAC-based authentication:\n" +
 			"   * Use the device's MAC address as both username and password\n" +
 			"   * Convert MAC address to uppercase with no separators (e.g., '00:11:22:33:44:55' becomes '001122334455')\n" +
 			"2. VLAN Assignment:\n" +
-			"   * If no VLAN is specified in the profile, clients will use the network's untagged VLAN\n" +
-			"   * VLAN assignment uses standard RADIUS tunnel attributes\n\n" +
+			"   * Set the `vlan` attribute to the 802.1Q VLAN ID the controller should assign to authenticated clients\n" +
+			"   * VLAN assignment is delivered using the standard RADIUS tunnel attributes (`tunnel_type`/`tunnel_medium_type`)\n" +
+			"   * If no VLAN is specified, clients will use the network's untagged VLAN\n\n" +
 			"Limitations:\n" +
 			"  * MAC-based authentication works only for wireless and wired clients\n" +
 			"  * L2TP remote access VPN is not supported with MAC authentication\n" +
@@ -88,24 +91,34 @@ func ResourceAccount() *schema.Resource {
 				ValidateFunc: validation.IntBetween(1, 15),
 			},
 			"network_id": {
-				Description: "The ID of the network (VLAN) to assign to clients authenticating with this account. This is used in " +
-					"conjunction with the tunnel attributes to provide VLAN assignment via RADIUS.",
+				Description: "The ID of a UniFi network configuration (the controller's `networkconf_id`) to associate with this " +
+					"account. This is a reference to a network object and is distinct from the `vlan` attribute, which sets the " +
+					"802.1Q VLAN ID delivered via RADIUS.",
 				Type:     schema.TypeString,
 				Optional: true,
+			},
+			"vlan": {
+				Description: "The 802.1Q VLAN ID to assign to clients authenticating with this account, used for RADIUS dynamic " +
+					"VLAN assignment. It is delivered together with the tunnel attributes (`tunnel_type`/`tunnel_medium_type`). " +
+					"Omitting this attribute means no VLAN is assigned; if a VLAN was set out-of-band " +
+					"(e.g. in the controller UI), omitting it here removes it on the next apply.",
+				Type:         schema.TypeInt,
+				Optional:     true,
+				ValidateFunc: validation.IntAtLeast(2),
 			},
 		},
 	}
 }
 
 func resourceAccountCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
-
-	req, err := resourceAccountGetResourceData(d)
-	if err != nil {
-		return diag.FromErr(err)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
 	}
 
-	site := d.Get("site").(string)
+	req := resourceAccountGetResourceData(d)
+
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
@@ -121,34 +134,47 @@ func resourceAccountCreate(ctx context.Context, d *schema.ResourceData, meta int
 }
 
 func resourceAccountUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
 
-	req, err := resourceAccountGetResourceData(d)
-	if err != nil {
-		return diag.FromErr(err)
-	}
+	req := resourceAccountGetResourceData(d)
 
 	req.ID = d.Id()
 	req.SiteID = site
 
+	// go-unifi v1.9.2's updateAccount converts a successful-but-empty PUT response
+	// into unifi.ErrNotFound (see utils.ReReadOnUpdateNotFound / issue #98); re-read
+	// to tell a spurious error from a genuine out-of-band deletion.
 	resp, err := c.UpdateAccount(ctx, site, req)
+	resp, found, err := utils.ReReadOnUpdateNotFound(resp, err, func() (*unifi.Account, error) {
+		return c.GetAccount(ctx, site, req.ID)
+	})
 	if err != nil {
 		return diag.FromErr(err)
+	}
+	if !found {
+		d.SetId("")
+		return nil
 	}
 
 	return resourceAccountSetResourceData(resp, d, site)
 }
 
 func resourceAccountDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
-	//name := d.Get("name").(string)
-	site := d.Get("site").(string)
+	// name := d.Get("name").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
@@ -162,11 +188,14 @@ func resourceAccountDelete(ctx context.Context, d *schema.ResourceData, meta int
 }
 
 func resourceAccountRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	id := d.Id()
 
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
@@ -184,21 +213,43 @@ func resourceAccountRead(ctx context.Context, d *schema.ResourceData, meta inter
 }
 
 func resourceAccountSetResourceData(resp *unifi.Account, d *schema.ResourceData, site string) diag.Diagnostics {
-	d.Set("site", site)
-	d.Set("name", resp.Name)
-	d.Set("password", resp.XPassword)
-	d.Set("tunnel_type", resp.TunnelType)
-	d.Set("tunnel_medium_type", resp.TunnelMediumType)
-	d.Set("network_id", resp.NetworkID)
+	if err := d.Set("site", site); err != nil {
+		return diag.FromErr(err)
+	}
+	if err := d.Set("name", resp.Name); err != nil {
+		return diag.FromErr(err)
+	}
+	if err := d.Set("password", resp.XPassword); err != nil {
+		return diag.FromErr(err)
+	}
+	if err := d.Set("tunnel_type", resp.TunnelType); err != nil {
+		return diag.FromErr(err)
+	}
+	if err := d.Set("tunnel_medium_type", resp.TunnelMediumType); err != nil {
+		return diag.FromErr(err)
+	}
+	if err := d.Set("network_id", resp.NetworkID); err != nil {
+		return diag.FromErr(err)
+	}
+	if err := d.Set("vlan", resp.VLAN); err != nil {
+		return diag.FromErr(err)
+	}
 	return nil
 }
 
-func resourceAccountGetResourceData(d *schema.ResourceData) (*unifi.Account, error) {
+func resourceAccountGetResourceData(d *schema.ResourceData) *unifi.Account {
+	name, _ := d.Get("name").(string)
+	password, _ := d.Get("password").(string)
+	tunnelType, _ := d.Get("tunnel_type").(int)
+	tunnelMediumType, _ := d.Get("tunnel_medium_type").(int)
+	networkID, _ := d.Get("network_id").(string)
+	vlan, _ := d.Get("vlan").(int)
 	return &unifi.Account{
-		Name:             d.Get("name").(string),
-		XPassword:        d.Get("password").(string),
-		TunnelType:       d.Get("tunnel_type").(int),
-		TunnelMediumType: d.Get("tunnel_medium_type").(int),
-		NetworkID:        d.Get("network_id").(string),
-	}, nil
+		Name:             name,
+		XPassword:        password,
+		TunnelType:       tunnelType,
+		TunnelMediumType: tunnelMediumType,
+		NetworkID:        networkID,
+		VLAN:             vlan,
+	}
 }

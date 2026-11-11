@@ -1,12 +1,13 @@
 package testing
 
 import (
-	"github.com/apparentlymart/go-cidr/cidr"
-	mapset "github.com/deckarep/golang-set/v2"
 	"math"
 	"net"
 	"sync"
 	"testing"
+
+	"github.com/apparentlymart/go-cidr/cidr"
+	mapset "github.com/deckarep/golang-set/v2"
 )
 
 const (
@@ -16,7 +17,7 @@ const (
 
 var (
 	macInit sync.Once
-	macPool = mapset.NewSet[*net.HardwareAddr]()
+	macPool = mapset.NewSet[string]()
 	network = &net.IPNet{
 		IP:   net.IPv4(10, 0, 0, 0).To4(),
 		Mask: net.IPv4Mask(255, 0, 0, 0),
@@ -27,6 +28,7 @@ var (
 )
 
 func GetTestVLAN(t *testing.T) (*net.IPNet, int) {
+	t.Helper()
 	vlanLock.Lock()
 	defer vlanLock.Unlock()
 
@@ -42,19 +44,23 @@ func GetTestVLAN(t *testing.T) (*net.IPNet, int) {
 }
 
 func AllocateTestMac(t *testing.T) (string, func()) {
+	t.Helper()
 	MarkAccTest(t)
 	macInit.Do(func() {
 		// for test MAC addresses, see https://tools.ietf.org/html/rfc7042#section-2.1.
-		for i := 0; i < 512; i++ {
+		// The 00:00:5e:00:53:xx documentation block reserves 256 unicast addresses.
+		// Store MAC string VALUES (not pointers) so the set dedupes by value and Pop
+		// hands a distinct address to each concurrent caller.
+		for i := range 256 {
 			mac := net.HardwareAddr{0x00, 0x00, 0x5e, 0x00, 0x53, byte(i)}
-			if ok := macPool.Add(&mac); !ok {
+			if ok := macPool.Add(mac.String()); !ok {
 				t.Fatal("Failed to add MAC to pool")
 			}
 		}
 	})
 
 	mac, ok := macPool.Pop()
-	if mac == nil || !ok {
+	if mac == "" || !ok {
 		t.Fatal("Unable to allocate test MAC")
 	}
 
@@ -64,5 +70,5 @@ func AllocateTestMac(t *testing.T) (string, func()) {
 		}
 	}
 
-	return mac.String(), unallocate
+	return mac, unallocate
 }
