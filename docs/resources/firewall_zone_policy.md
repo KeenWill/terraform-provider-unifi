@@ -98,7 +98,6 @@ resource "unifi_firewall_zone_policy" "policy2" {
 - `connection_states` (List of String) Connection states to match when `connection_state_type` is `CUSTOM`. Valid values include `ESTABLISHED`, `NEW`, `RELATED`, and `INVALID`.
 - `description` (String) Description of the firewall zone policy.
 - `enabled` (Boolean) Enable the policy
-- `index` (Number) Priority index for the policy.
 - `ip_version` (String) Optionally match on only IPv4 or IPv6. Valid values are `BOTH`, `IPV4`, or `IPV6`.
 - `logging` (Boolean) Enable to generate syslog entries when traffic is matched.
 - `match_ip_sec_type` (String) Optionally match on traffic encrypted by IPsec. This is typically used for Ipsec Policy-Based VPNs. Valid values are `MATCH_IP_SEC` or `MATCH_NON_IP_SEC`.
@@ -110,6 +109,7 @@ resource "unifi_firewall_zone_policy" "policy2" {
 ### Read-Only
 
 - `id` (String) The unique identifier of this resource.
+- `index` (Number) Priority index for the policy. This value is assigned by the UniFi controller and cannot be set directly. To control policy ordering, use the `unifi_firewall_zone_policy_order` resource (planned for future release).
 
 <a id="nestedatt--destination"></a>
 ### Nested Schema for `destination`
@@ -125,7 +125,9 @@ Optional:
 - `ip_group_id` (String) ID of the source IP group.
 - `ips` (List of String) List of source IPs.
 - `match_opposite_ips` (Boolean) Whether to match opposite IPs.
+- `match_opposite_networks` (Boolean) Whether to match opposite networks.
 - `match_opposite_ports` (Boolean) Whether to match opposite ports.
+- `network_ids` (List of String) List of network IDs.
 - `port` (Number) Source port.
 - `port_group_id` (String) ID of the source port group.
 - `regions` (List of String) List of regions.
@@ -171,6 +173,8 @@ Optional:
 ## Import
 
 Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
 # import from provider configured site

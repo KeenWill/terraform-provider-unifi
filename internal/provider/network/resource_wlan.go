@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/filipowm/terraform-provider-unifi/internal/provider/utils"
 
 	"github.com/filipowm/go-unifi/unifi"
-	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
+
+	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
 )
 
 var (
@@ -236,14 +238,32 @@ func ResourceWLAN() *schema.Resource {
 				ValidateFunc: validation.IntInSlice(append([]int{0}, wlanValidMinimumDataRate5g...)),
 			},
 			"wlan_band": {
-				Description: "Radio band selection. Valid values:\n" +
-					"  * `both` - Both 2.4GHz and 5GHz (default)\n" +
+				Description: "Radio band selection (legacy single-band field). Valid values:\n" +
+					"  * `both` - Both 2.4GHz and 5GHz\n" +
 					"  * `2g` - 2.4GHz only\n" +
-					"  * `5g` - 5GHz only",
-				Type:         schema.TypeString,
-				Optional:     true,
-				ValidateFunc: validation.StringInSlice([]string{"2g", "5g", "both"}, false),
-				Default:      "both",
+					"  * `5g` - 5GHz only\n\n" +
+					"Cannot express a 6GHz selection — use `wlan_bands` for that. When neither this nor `wlan_bands` is set, " +
+					"the controller's default (all supported bands) applies.",
+				Type:          schema.TypeString,
+				Optional:      true,
+				Computed:      true,
+				ValidateFunc:  validation.StringInSlice([]string{"2g", "5g", "both"}, false),
+				ConflictsWith: []string{"wlan_bands"},
+			},
+			"wlan_bands": {
+				Description: "Radio bands to broadcast this SSID on (modern multi-band field, supersedes `wlan_band` and supports 6GHz). " +
+					"Valid values for each element: `2g`, `5g`, `6g`. Note that 6GHz requires WPA3 (or WPA3 transition mode) and a " +
+					"6GHz-capable access point. When set, the legacy `wlan_band` field is derived from it and `setting_preference` " +
+					"is forced to `manual`, matching UniFi UI behavior.",
+				Type:          schema.TypeSet,
+				Optional:      true,
+				Computed:      true,
+				MinItems:      1,
+				ConflictsWith: []string{"wlan_band"},
+				Elem: &schema.Schema{
+					Type:         schema.TypeString,
+					ValidateFunc: validation.StringInSlice([]string{"2g", "5g", "6g"}, false),
+				},
 			},
 			"network_id": {
 				Description: "ID of the network (VLAN) for this SSID. Used to assign the WLAN to a specific network segment.",
@@ -263,24 +283,27 @@ func ResourceWLAN() *schema.Resource {
 }
 
 func resourceWLANGetResourceData(d *schema.ResourceData, meta interface{}) (*unifi.WLAN, error) {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return nil, fmt.Errorf("unexpected meta type: %T", meta)
+	}
 
-	security := d.Get("security").(string)
-	passphrase := d.Get("passphrase").(string)
+	security, _ := d.Get("security").(string)
+	passphrase, _ := d.Get("passphrase").(string)
 	switch security {
 	case "open":
 		passphrase = ""
 	}
 
-	pmf := d.Get("pmf_mode").(string)
-	wpa3 := d.Get("wpa3_support").(bool)
-	wpa3Transition := d.Get("wpa3_transition").(bool)
+	pmf, _ := d.Get("pmf_mode").(string)
+	wpa3, _ := d.Get("wpa3_support").(bool)
+	wpa3Transition, _ := d.Get("wpa3_transition").(bool)
 	switch security {
 	case "wpapsk":
 		// nothing
 	default:
 		if wpa3 || wpa3Transition {
-			return nil, fmt.Errorf("wpa3_support and wpa3_transition are only valid for security type wpapsk")
+			return nil, errors.New("wpa3_support and wpa3_transition are only valid for security type wpapsk")
 		}
 	}
 	if !c.SupportsWPA3() {
@@ -290,13 +313,14 @@ func resourceWLANGetResourceData(d *schema.ResourceData, meta interface{}) (*uni
 	}
 
 	if wpa3Transition && pmf == "disabled" {
-		return nil, fmt.Errorf("WPA 3 transition mode requires pmf_mode to be turned on.")
+		return nil, errors.New("WPA 3 transition mode requires pmf_mode to be turned on")
 	} else if wpa3 && !wpa3Transition && pmf != "required" {
-		return nil, fmt.Errorf("For WPA 3 you must set pmf_mode to required.")
+		return nil, errors.New("for WPA 3 you must set pmf_mode to required")
 	}
 
-	macFilterEnabled := d.Get("mac_filter_enabled").(bool)
-	macFilterList, err := utils.SetToStringSlice(d.Get("mac_filter_list").(*schema.Set))
+	macFilterEnabled, _ := d.Get("mac_filter_enabled").(bool)
+	macFilterListSet, _ := d.Get("mac_filter_list").(*schema.Set)
+	macFilterList, err := utils.SetToStringSlice(macFilterListSet)
 	if err != nil {
 		return nil, err
 	}
@@ -305,46 +329,105 @@ func resourceWLANGetResourceData(d *schema.ResourceData, meta interface{}) (*uni
 	}
 
 	// version specific fields and validation
-	networkID := d.Get("network_id").(string)
-	apGroupIDs, err := utils.SetToStringSlice(d.Get("ap_group_ids").(*schema.Set))
+	networkID, _ := d.Get("network_id").(string)
+	apGroupIDsSet, _ := d.Get("ap_group_ids").(*schema.Set)
+	apGroupIDs, err := utils.SetToStringSlice(apGroupIDsSet)
 	if err != nil {
 		return nil, err
 	}
-	wlanBand := d.Get("wlan_band").(string)
+	wlanBand, _ := d.Get("wlan_band").(string)
 
-	schedule, err := listToSchedules(d.Get("schedule").([]interface{}))
+	// Only send wlan_bands when it is explicitly configured. The attribute is
+	// Computed, so d.Get also returns controller-derived state for configs
+	// that only set the legacy wlan_band — echoing that stale array back
+	// would override a wlan_band change.
+	wlanBandsSet, _ := d.Get("wlan_bands").(*schema.Set)
+	wlanBands, err := utils.SetToStringSlice(wlanBandsSet)
+	if err != nil {
+		return nil, err
+	}
+	bandsConfigured, legacyBandConfigured := false, false
+	if raw := d.GetRawConfig(); !raw.IsNull() {
+		bandsConfigured = !raw.GetAttr("wlan_bands").IsNull()
+		legacyBandConfigured = !raw.GetAttr("wlan_band").IsNull()
+	}
+	settingPreference := ""
+	if bandsConfigured {
+		// wlan_bands is authoritative — but ONLY if the legacy wlan_band
+		// string is absent from the payload. The controller derives
+		// wlan_bands FROM a present wlan_band and ignores the array we send:
+		// empirically wlan_band="5g" + wlan_bands=["5g","6g"] persisted
+		// ["5g"], and wlan_band="both" + the same array persisted ["2g","5g"]
+		// (i.e. "both" expands to 2.4+5, NOT a permissive "defer to the
+		// array"). The legacy enum (2g/5g/both) can't even express
+		// ["5g","6g"]. So we must OMIT wlan_band entirely: it has omitempty,
+		// so leaving it "" drops it from the JSON and the controller honors
+		// wlan_bands as given. Pin setting_preference to manual the way the
+		// UI does when bands are hand-picked.
+		wlanBand = ""
+		settingPreference = "manual"
+	} else {
+		wlanBands = nil
+		if !legacyBandConfigured {
+			// Both attributes are computed when omitted. Do not send an inherited
+			// legacy value on an unrelated update: it cannot represent 6 GHz.
+			wlanBand = ""
+		}
+	}
+
+	scheduleList, _ := d.Get("schedule").([]interface{})
+	schedule, err := listToSchedules(scheduleList)
 	if err != nil {
 		return nil, fmt.Errorf("unable to process schedule block: %w", err)
 	}
 
+	minRate2g, _ := d.Get("minimum_data_rate_2g_kbps").(int)
+	minRate5g, _ := d.Get("minimum_data_rate_5g_kbps").(int)
+
 	minrateSettingPreference := "auto"
-	if d.Get("minimum_data_rate_2g_kbps").(int) != 0 || d.Get("minimum_data_rate_5g_kbps").(int) != 0 {
-		if d.Get("minimum_data_rate_2g_kbps").(int) == 0 || d.Get("minimum_data_rate_5g_kbps").(int) == 0 {
+	if minRate2g != 0 || minRate5g != 0 {
+		if minRate2g == 0 || minRate5g == 0 {
 			// this is really only true I think in >= 7.2, but easier to just apply this in general
-			return nil, fmt.Errorf("you must set minimum data rates on both 2g and 5g if setting either")
+			return nil, errors.New("you must set minimum data rates on both 2g and 5g if setting either")
 		}
 		minrateSettingPreference = "manual"
 	}
 
+	name, _ := d.Get("name").(string)
+	hideSSID, _ := d.Get("hide_ssid").(bool)
+	isGuest, _ := d.Get("is_guest").(bool)
+	userGroupID, _ := d.Get("user_group_id").(string)
+	multicastEnhance, _ := d.Get("multicast_enhance").(bool)
+	macFilterPolicy, _ := d.Get("mac_filter_policy").(string)
+	radiusProfileID, _ := d.Get("radius_profile_id").(string)
+	no2ghzOui, _ := d.Get("no2ghz_oui").(bool)
+	l2Isolation, _ := d.Get("l2_isolation").(bool)
+	proxyArp, _ := d.Get("proxy_arp").(bool)
+	bssTransition, _ := d.Get("bss_transition").(bool)
+	uapsd, _ := d.Get("uapsd").(bool)
+	fastRoaming, _ := d.Get("fast_roaming_enabled").(bool)
+
 	return &unifi.WLAN{
-		Name:                    d.Get("name").(string),
+		Name:                    name,
 		XPassphrase:             passphrase,
-		HideSSID:                d.Get("hide_ssid").(bool),
-		IsGuest:                 d.Get("is_guest").(bool),
+		HideSSID:                hideSSID,
+		IsGuest:                 isGuest,
 		NetworkID:               networkID,
 		ApGroupIDs:              apGroupIDs,
-		UserGroupID:             d.Get("user_group_id").(string),
+		UserGroupID:             userGroupID,
 		Security:                security,
 		WPA3Support:             wpa3,
 		WPA3Transition:          wpa3Transition,
-		MulticastEnhanceEnabled: d.Get("multicast_enhance").(bool),
+		MulticastEnhanceEnabled: multicastEnhance,
 		MACFilterEnabled:        macFilterEnabled,
 		MACFilterList:           macFilterList,
-		MACFilterPolicy:         d.Get("mac_filter_policy").(string),
-		RADIUSProfileID:         d.Get("radius_profile_id").(string),
+		MACFilterPolicy:         macFilterPolicy,
+		RADIUSProfileID:         radiusProfileID,
 		ScheduleWithDuration:    schedule,
 		ScheduleEnabled:         len(schedule) > 0,
 		WLANBand:                wlanBand,
+		WLANBands:               wlanBands,
+		SettingPreference:       settingPreference,
 		PMFMode:                 pmf,
 
 		// TODO: add to schema
@@ -355,32 +438,35 @@ func resourceWLANGetResourceData(d *schema.ResourceData, meta interface{}) (*uni
 
 		GroupRekey:         3600,
 		DTIMMode:           "default",
-		No2GhzOui:          d.Get("no2ghz_oui").(bool),
-		L2Isolation:        d.Get("l2_isolation").(bool),
-		ProxyArp:           d.Get("proxy_arp").(bool),
-		BssTransition:      d.Get("bss_transition").(bool),
-		UapsdEnabled:       d.Get("uapsd").(bool),
-		FastRoamingEnabled: d.Get("fast_roaming_enabled").(bool),
+		No2GhzOui:          no2ghzOui,
+		L2Isolation:        l2Isolation,
+		ProxyArp:           proxyArp,
+		BssTransition:      bssTransition,
+		UapsdEnabled:       uapsd,
+		FastRoamingEnabled: fastRoaming,
 
 		MinrateSettingPreference: minrateSettingPreference,
 
-		MinrateNgEnabled:      d.Get("minimum_data_rate_2g_kbps").(int) != 0,
-		MinrateNgDataRateKbps: d.Get("minimum_data_rate_2g_kbps").(int),
+		MinrateNgEnabled:      minRate2g != 0,
+		MinrateNgDataRateKbps: minRate2g,
 
-		MinrateNaEnabled:      d.Get("minimum_data_rate_5g_kbps").(int) != 0,
-		MinrateNaDataRateKbps: d.Get("minimum_data_rate_5g_kbps").(int),
+		MinrateNaEnabled:      minRate5g != 0,
+		MinrateNaDataRateKbps: minRate5g,
 	}, nil
 }
 
 func resourceWLANCreate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	req, err := resourceWLANGetResourceData(d, meta)
 	if err != nil {
 		return diag.FromErr(err)
 	}
 
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
@@ -392,11 +478,10 @@ func resourceWLANCreate(ctx context.Context, d *schema.ResourceData, meta interf
 
 	d.SetId(resp.ID)
 
-	return resourceWLANSetResourceData(resp, d, meta, site)
+	return resourceWLANSetResourceData(resp, d, site)
 }
 
-func resourceWLANSetResourceData(resp *unifi.WLAN, d *schema.ResourceData, meta interface{}, site string) diag.Diagnostics {
-	// c := meta.(*provider.Client)
+func resourceWLANSetResourceData(resp *unifi.WLAN, d *schema.ResourceData, site string) diag.Diagnostics {
 	security := resp.Security
 	passphrase := resp.XPassphrase
 	wpa3 := false
@@ -421,50 +506,61 @@ func resourceWLANSetResourceData(resp *unifi.WLAN, d *schema.ResourceData, meta 
 
 	schedule := listFromSchedules(resp.ScheduleWithDuration)
 
-	d.Set("site", site)
-	d.Set("name", resp.Name)
-	d.Set("user_group_id", resp.UserGroupID)
-	d.Set("passphrase", passphrase)
-	d.Set("hide_ssid", resp.HideSSID)
-	d.Set("is_guest", resp.IsGuest)
-	d.Set("security", security)
-	d.Set("wpa3_support", wpa3)
-	d.Set("wpa3_transition", wpa3Transition)
-	d.Set("multicast_enhance", resp.MulticastEnhanceEnabled)
-	d.Set("mac_filter_enabled", macFilterEnabled)
-	d.Set("mac_filter_list", macFilterList)
-	d.Set("mac_filter_policy", macFilterPolicy)
-	d.Set("radius_profile_id", resp.RADIUSProfileID)
-	d.Set("schedule", schedule)
-	d.Set("wlan_band", resp.WLANBand)
-	d.Set("no2ghz_oui", resp.No2GhzOui)
-	d.Set("l2_isolation", resp.L2Isolation)
-	d.Set("proxy_arp", resp.ProxyArp)
-	d.Set("bss_transition", resp.BssTransition)
-	d.Set("uapsd", resp.UapsdEnabled)
-	d.Set("fast_roaming_enabled", resp.FastRoamingEnabled)
-	d.Set("ap_group_ids", apGroupIDs)
-	d.Set("network_id", resp.NetworkID)
-	d.Set("pmf_mode", resp.PMFMode)
+	minRate2g := 0
 	if resp.MinrateSettingPreference != "auto" && resp.MinrateNgEnabled {
-		d.Set("minimum_data_rate_2g_kbps", resp.MinrateNgDataRateKbps)
-	} else {
-		d.Set("minimum_data_rate_2g_kbps", 0)
+		minRate2g = resp.MinrateNgDataRateKbps
 	}
+	minRate5g := 0
 	if resp.MinrateSettingPreference != "auto" && resp.MinrateNaEnabled {
-		d.Set("minimum_data_rate_5g_kbps", resp.MinrateNaDataRateKbps)
-	} else {
-		d.Set("minimum_data_rate_5g_kbps", 0)
+		minRate5g = resp.MinrateNaDataRateKbps
+	}
+
+	for key, value := range map[string]interface{}{
+		"site":                      site,
+		"name":                      resp.Name,
+		"user_group_id":             resp.UserGroupID,
+		"passphrase":                passphrase,
+		"hide_ssid":                 resp.HideSSID,
+		"is_guest":                  resp.IsGuest,
+		"security":                  security,
+		"wpa3_support":              wpa3,
+		"wpa3_transition":           wpa3Transition,
+		"multicast_enhance":         resp.MulticastEnhanceEnabled,
+		"mac_filter_enabled":        macFilterEnabled,
+		"mac_filter_list":           macFilterList,
+		"mac_filter_policy":         macFilterPolicy,
+		"radius_profile_id":         resp.RADIUSProfileID,
+		"schedule":                  schedule,
+		"wlan_band":                 resp.WLANBand,
+		"wlan_bands":                utils.StringSliceToSet(resp.WLANBands),
+		"no2ghz_oui":                resp.No2GhzOui,
+		"l2_isolation":              resp.L2Isolation,
+		"proxy_arp":                 resp.ProxyArp,
+		"bss_transition":            resp.BssTransition,
+		"uapsd":                     resp.UapsdEnabled,
+		"fast_roaming_enabled":      resp.FastRoamingEnabled,
+		"ap_group_ids":              apGroupIDs,
+		"network_id":                resp.NetworkID,
+		"pmf_mode":                  resp.PMFMode,
+		"minimum_data_rate_2g_kbps": minRate2g,
+		"minimum_data_rate_5g_kbps": minRate5g,
+	} {
+		if err := d.Set(key, value); err != nil {
+			return diag.FromErr(err)
+		}
 	}
 
 	return nil
 }
 
 func resourceWLANRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	id := d.Id()
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
@@ -478,11 +574,14 @@ func resourceWLANRead(ctx context.Context, d *schema.ResourceData, meta interfac
 		return diag.FromErr(err)
 	}
 
-	return resourceWLANSetResourceData(resp, d, meta, site)
+	return resourceWLANSetResourceData(resp, d, site)
 }
 
 func resourceWLANUpdate(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	req, err := resourceWLANGetResourceData(d, meta)
 	if err != nil {
@@ -490,25 +589,38 @@ func resourceWLANUpdate(ctx context.Context, d *schema.ResourceData, meta interf
 	}
 
 	req.ID = d.Id()
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
 	req.SiteID = site
 
+	// go-unifi v1.9.2's updateWLAN converts a successful-but-empty PUT response into
+	// unifi.ErrNotFound (see utils.ReReadOnUpdateNotFound / issue #98); re-read to
+	// tell a spurious error from a genuine out-of-band deletion.
 	resp, err := c.UpdateWLAN(ctx, site, req)
+	resp, found, err := utils.ReReadOnUpdateNotFound(resp, err, func() (*unifi.WLAN, error) {
+		return c.GetWLAN(ctx, site, req.ID)
+	})
 	if err != nil {
 		return diag.FromErr(err)
 	}
+	if !found {
+		d.SetId("")
+		return nil
+	}
 
-	return resourceWLANSetResourceData(resp, d, meta, site)
+	return resourceWLANSetResourceData(resp, d, site)
 }
 
 func resourceWLANDelete(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
 	id := d.Id()
-	site := d.Get("site").(string)
+	site, _ := d.Get("site").(string)
 	if site == "" {
 		site = c.Site
 	}
@@ -525,7 +637,7 @@ func listToSchedules(list []interface{}) ([]unifi.WLANScheduleWithDuration, erro
 	for _, item := range list {
 		data, ok := item.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("unexpected data in block")
+			return nil, errors.New("unexpected data in block")
 		}
 		ss := toSchedule(data)
 		schedules = append(schedules, ss)
@@ -535,11 +647,11 @@ func listToSchedules(list []interface{}) ([]unifi.WLANScheduleWithDuration, erro
 
 func toSchedule(data map[string]interface{}) unifi.WLANScheduleWithDuration {
 	// TODO: error check these?
-	dow := data["day_of_week"].(string)
-	startHour := data["start_hour"].(int)
-	startMinute := data["start_minute"].(int)
-	duration := data["duration"].(int)
-	name := data["name"].(string)
+	dow, _ := data["day_of_week"].(string)
+	startHour, _ := data["start_hour"].(int)
+	startMinute, _ := data["start_minute"].(int)
+	duration, _ := data["duration"].(int)
+	name, _ := data["name"].(string)
 
 	return unifi.WLANScheduleWithDuration{
 		StartDaysOfWeek: []string{dow},

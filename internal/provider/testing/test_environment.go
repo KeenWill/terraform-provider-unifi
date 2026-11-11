@@ -5,10 +5,8 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,8 +14,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+
+	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
+
 	"github.com/filipowm/go-unifi/unifi"
-	"github.com/testcontainers/testcontainers-go"
+	tclog "github.com/testcontainers/testcontainers-go/log"
 	"github.com/testcontainers/testcontainers-go/modules/compose"
 )
 
@@ -57,7 +60,7 @@ func Run(m *testing.M, callback func(env *TestEnvironment)) int {
 
 func NewTestEnvironment(startupTimeout time.Duration) *TestEnvironment {
 	c := http.Client{Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test controller uses a self-signed certificate
 	}}
 	ctx := context.Background()
 	return &TestEnvironment{
@@ -99,15 +102,15 @@ func (te *TestEnvironment) run(m *testing.M, callback func(env *TestEnvironment)
 }
 
 func (te *TestEnvironment) readStatus(ctx context.Context) (testEnvironmentStatus, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/status", te.Endpoint), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, te.Endpoint+"/status", nil)
 	if err != nil {
 		return TestEnvUnknown, err
 	}
-	req = req.WithContext(ctx)
 	r, err := te.internalClient.Do(req)
 	if err != nil {
 		return TestEnvDown, err
 	}
+	defer r.Body.Close()
 	resp := envStatus{}
 	err = json.NewDecoder(r.Body).Decode(&resp)
 	if err != nil {
@@ -144,7 +147,7 @@ func (te *TestEnvironment) startDockerController(ctx context.Context) error {
 		return fmt.Errorf("failed to find docker-compose.yaml file: %w", err)
 	}
 	dc, err := compose.NewDockerCompose(composeFile)
-	shutdown := func() {
+	shutdown := func() { //nolint:contextcheck // teardown must use a fresh context; the request context may already be cancelled
 		if dc != nil {
 			if err := dc.Down(context.Background(), compose.RemoveOrphans(true), compose.RemoveImagesLocal); err != nil {
 				panic(err)
@@ -165,8 +168,6 @@ func (te *TestEnvironment) startDockerController(ctx context.Context) error {
 	}
 
 	// Dump the container logs on exit.
-	//
-	// TODO: Use https://pkg.go.dev/github.com/testcontainers/testcontainers-go#LogConsumer instead.
 	te.Shutdown = func() {
 		shutdown()
 
@@ -181,8 +182,11 @@ func (te *TestEnvironment) startDockerController(ctx context.Context) error {
 		}
 
 		buffer := new(bytes.Buffer)
-		buffer.ReadFrom(stream)
-		testcontainers.Logger.Printf("%s", buffer)
+		if _, err := buffer.ReadFrom(stream); err != nil {
+			fmt.Printf("Failed to read logs from container: %v", err)
+			return
+		}
+		tclog.Printf("%s", buffer)
 	}
 	endpoint, err := container.PortEndpoint(ctx, "8443/tcp", "https")
 	if err != nil {
@@ -198,9 +202,11 @@ func (te *TestEnvironment) WaitUntilReady() error {
 	defer cancel()
 	defer te.mutex.Unlock()
 	if st, _ := te.readStatus(ctx); st == TestEnvDown || st == TestEnvUnknown {
-		return fmt.Errorf("controller is not starting nor running. Use Start() first to Start the controller")
+		return errors.New("controller is not starting nor running. Use Start() first to Start the controller")
 	}
-	te.waitForController(ctx)
+	if err := te.waitForController(ctx); err != nil {
+		return err
+	}
 	if !te.isReady() {
 		return fmt.Errorf("controller is not ready within %s", te.timeout)
 	}
@@ -230,21 +236,26 @@ func (te *TestEnvironment) Start() error {
 	return nil
 }
 
-func (te *TestEnvironment) waitForController(ctx context.Context) {
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		for {
-			if st, err := te.readStatus(ctx); err != nil {
-				return
-			} else if st == TestEnvReady {
-				wg.Done()
-				return
-			}
-			time.Sleep(1 * time.Second)
+// waitForController polls the controller status inline until it reports ready
+// or the context is done (deadline exceeded / cancelled). It always terminates:
+// transient readStatus errors are tolerated (the controller may restart Tomcat
+// mid-provisioning) and simply trigger another poll on the next tick, while the
+// context deadline guarantees a bounded wait and a clean error return.
+func (te *TestEnvironment) waitForController(ctx context.Context) error {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		// Check readiness first so a controller that is already up returns
+		// immediately without waiting for the first tick.
+		if st, err := te.readStatus(ctx); err == nil && st == TestEnvReady {
+			return nil
 		}
-	}()
-	wg.Wait()
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("controller did not become ready: %w", context.Cause(ctx))
+		case <-ticker.C:
+		}
+	}
 }
 
 func (te *TestEnvironment) newTestClient() (unifi.Client, error) {

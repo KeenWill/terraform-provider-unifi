@@ -1,0 +1,1 @@
+{"id":"00000000-0000-4000-8000-000000000002","name":"Fixture AP","macAddress":"02:00:00:00:00:02","ipAddress":"192.0.2.2","model":"fixture","configurationId":"fixture-config","features":{},"firmwareUpdatable":false,"interfaces":{"radios":[{"frequencyGHz":0.9,"channelWidthMHz":2,"wlanStandard":"802.11ah","txPowerMode":"AUTO"}]},"state":"ONLINE","supported":true}

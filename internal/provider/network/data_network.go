@@ -2,11 +2,13 @@ package network
 
 import (
 	"context"
+
 	"github.com/filipowm/terraform-provider-unifi/internal/provider/utils"
 
-	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+
+	"github.com/filipowm/terraform-provider-unifi/internal/provider/base"
 )
 
 func DataNetwork() *schema.Resource {
@@ -59,9 +61,11 @@ func DataNetwork() *schema.Resource {
 				Computed:    true,
 			},
 			"firewall_zone_id": {
-				Description: "The ID of the UniFi Network firewall zone assigned to this network.",
-				Type:        schema.TypeString,
-				Computed:    true,
+				Description: "The ID of the Zone-Based Firewall (ZBF) zone this network belongs to. Only " +
+					"meaningful on UniFi OS 9.x controllers with Zone-Based Firewall enabled; empty otherwise. " +
+					"The zone ID is site-scoped.",
+				Type:     schema.TypeString,
+				Computed: true,
 			},
 			"dhcp_start": {
 				Description: "The IPv4 address where the DHCP range of addresses starts.",
@@ -109,6 +113,16 @@ func DataNetwork() *schema.Resource {
 				Type:        schema.TypeString,
 				Computed:    true,
 			},
+			"dhcpd_gateway_enabled": {
+				Description: "Whether the DHCP default gateway is manually overridden (true) or auto (false).",
+				Type:        schema.TypeBool,
+				Computed:    true,
+			},
+			"dhcpd_gateway": {
+				Description: "The IPv4 default gateway advertised to DHCP clients when the override is enabled.",
+				Type:        schema.TypeString,
+				Computed:    true,
+			},
 			"dhcp_v6_dns": {
 				Description: "Specifies the IPv6 addresses for the DNS server to be returned from the DHCP " +
 					"server. Used if `dhcp_v6_dns_auto` is set to `false`.",
@@ -153,8 +167,13 @@ func DataNetwork() *schema.Resource {
 				Type:        schema.TypeBool,
 				Computed:    true,
 			},
+			"dhcp_guarding": {
+				Description: "Specifies whether DHCP Guarding (rogue/untrusted DHCP server protection) is enabled or not.",
+				Type:        schema.TypeBool,
+				Computed:    true,
+			},
 			"ipv6_interface_type": {
-				Description: "Specifies which type of IPv6 connection to use. Must be one of either `static`, `pd`, or `none`.",
+				Description: "Specifies which type of IPv6 connection to use. Must be one of either `static`, `pd`, `single_network`, or `none`.",
 				Type:        schema.TypeString,
 				Computed:    true,
 			},
@@ -286,11 +305,14 @@ func DataNetwork() *schema.Resource {
 }
 
 func dataNetworkRead(ctx context.Context, d *schema.ResourceData, meta interface{}) diag.Diagnostics {
-	c := meta.(*base.Client)
+	c, ok := meta.(*base.Client)
+	if !ok {
+		return diag.Errorf("unexpected meta type: %T", meta)
+	}
 
-	name := d.Get("name").(string)
-	site := d.Get("site").(string)
-	id := d.Get("id").(string)
+	name, _ := d.Get("name").(string)
+	site, _ := d.Get("site").(string)
+	id, _ := d.Get("id").(string)
 	if site == "" {
 		site = c.Site
 	}
@@ -301,6 +323,15 @@ func dataNetworkRead(ctx context.Context, d *schema.ResourceData, meta interface
 	networks, err := c.ListNetwork(ctx, site)
 	if err != nil {
 		return diag.FromErr(err)
+	}
+	matches := 0
+	for _, network := range networks {
+		if (name != "" && network.Name == name) || (id != "" && network.ID == id) {
+			matches++
+		}
+	}
+	if matches > 1 {
+		return diag.Errorf("Network lookup is ambiguous in site %q; use a uniquely scoped ID", site)
 	}
 	for _, n := range networks {
 		if (name != "" && n.Name == name) || (id != "" && n.ID == id) {
@@ -330,43 +361,52 @@ func dataNetworkRead(ctx context.Context, d *schema.ResourceData, meta interface
 			}
 
 			d.SetId(n.ID)
-			d.Set("site", site)
-			d.Set("name", n.Name)
-			d.Set("purpose", n.Purpose)
-			d.Set("vlan_id", n.VLAN)
-			d.Set("subnet", utils.CidrZeroBased(n.IPSubnet))
-			d.Set("network_group", n.NetworkGroup)
-			d.Set("firewall_zone_id", n.FirewallZoneID)
-			d.Set("dhcp_dns", dhcpDNS)
-			d.Set("dhcp_start", n.DHCPDStart)
-			d.Set("dhcp_stop", n.DHCPDStop)
-			d.Set("dhcp_enabled", n.DHCPDEnabled)
-			d.Set("dhcp_lease", n.DHCPDLeaseTime)
-			d.Set("dhcpd_boot_enabled", n.DHCPDBootEnabled)
-			d.Set("dhcpd_boot_server", n.DHCPDBootServer)
-			d.Set("dhcpd_boot_filename", n.DHCPDBootFilename)
-			d.Set("domain_name", n.DomainName)
-			d.Set("igmp_snooping", n.IGMPSnooping)
-			d.Set("ipv6_interface_type", n.IPV6InterfaceType)
-			d.Set("ipv6_static_subnet", n.IPV6Subnet)
-			d.Set("ipv6_pd_interface", n.IPV6PDInterface)
-			d.Set("ipv6_pd_prefixid", n.IPV6PDPrefixid)
-			d.Set("ipv6_ra_enable", n.IPV6RaEnabled)
-			d.Set("multicast_dns", n.MdnsEnabled)
-			d.Set("wan_ip", n.WANIP)
-			d.Set("wan_netmask", n.WANNetmask)
-			d.Set("wan_gateway", n.WANGateway)
-			d.Set("wan_type", n.WANType)
-			d.Set("wan_dns", wanDNS)
-			d.Set("wan_networkgroup", n.WANNetworkGroup)
-			d.Set("wan_egress_qos", n.WANEgressQOS)
-			d.Set("wan_username", n.WANUsername)
-			d.Set("x_wan_password", n.XWANPassword)
-			d.Set("wan_type_v6", n.WANTypeV6)
-			d.Set("wan_dhcp_v6_pd_size", n.WANDHCPv6PDSize)
-			d.Set("wan_ipv6", n.WANIPV6)
-			d.Set("wan_gateway_v6", n.WANGatewayV6)
-			d.Set("wan_prefixlen", n.WANPrefixlen)
+			for key, value := range map[string]interface{}{
+				"site":                  site,
+				"name":                  n.Name,
+				"purpose":               n.Purpose,
+				"vlan_id":               n.VLAN,
+				"subnet":                utils.CidrZeroBased(n.IPSubnet),
+				"network_group":         n.NetworkGroup,
+				"firewall_zone_id":      n.FirewallZoneID,
+				"dhcp_dns":              dhcpDNS,
+				"dhcp_start":            n.DHCPDStart,
+				"dhcp_stop":             n.DHCPDStop,
+				"dhcp_enabled":          n.DHCPDEnabled,
+				"dhcp_lease":            n.DHCPDLeaseTime,
+				"dhcpd_boot_enabled":    n.DHCPDBootEnabled,
+				"dhcpd_boot_server":     n.DHCPDBootServer,
+				"dhcpd_boot_filename":   n.DHCPDBootFilename,
+				"dhcpd_gateway_enabled": n.DHCPDGatewayEnabled,
+				"dhcpd_gateway":         n.DHCPDGateway,
+				"domain_name":           n.DomainName,
+				"igmp_snooping":         n.IGMPSnooping,
+				"dhcp_guarding":         n.DHCPguardEnabled,
+				"ipv6_interface_type":   n.IPV6InterfaceType,
+				"ipv6_static_subnet":    n.IPV6Subnet,
+				"ipv6_pd_interface":     n.IPV6PDInterface,
+				"ipv6_pd_prefixid":      n.IPV6PDPrefixid,
+				"ipv6_ra_enable":        n.IPV6RaEnabled,
+				"multicast_dns":         n.MdnsEnabled,
+				"wan_ip":                n.WANIP,
+				"wan_netmask":           n.WANNetmask,
+				"wan_gateway":           n.WANGateway,
+				"wan_type":              n.WANType,
+				"wan_dns":               wanDNS,
+				"wan_networkgroup":      n.WANNetworkGroup,
+				"wan_egress_qos":        n.WANEgressQOS,
+				"wan_username":          n.WANUsername,
+				"x_wan_password":        n.XWANPassword,
+				"wan_type_v6":           n.WANTypeV6,
+				"wan_dhcp_v6_pd_size":   n.WANDHCPv6PDSize,
+				"wan_ipv6":              n.WANIPV6,
+				"wan_gateway_v6":        n.WANGatewayV6,
+				"wan_prefixlen":         n.WANPrefixlen,
+			} {
+				if err := d.Set(key, value); err != nil {
+					return diag.FromErr(err)
+				}
+			}
 
 			return nil
 		}
