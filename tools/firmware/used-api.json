@@ -58,5 +58,9 @@
   {
     "path": "*/cmd/*",
     "reason": "Legacy command-backed provider operations"
+  },
+  {
+    "path": "/api/site/*/global/config/network",
+    "reason": "Global mDNS network scope and derived network state"
   }
 ]

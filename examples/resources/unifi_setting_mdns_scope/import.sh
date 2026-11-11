@@ -1,0 +1,1 @@
+terraform import unifi_setting_mdns_scope.selected_networks default:mdns-scope

@@ -214,6 +214,7 @@ func (p *unifiProvider) Resources(_ context.Context) []func() resource.Resource 
 		settings.NewSslInspectionResource,
 		settings.NewTeleportResource,
 		settings.NewMgmtResource,
+		settings.NewMDNSScopeResource,
 		settings.NewUsgResource,
 		settings.NewUswResource,
 		settings.NewGlobalSwitchResource,

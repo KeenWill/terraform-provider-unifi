@@ -178,6 +178,88 @@
         "323434",
         "995668"
       ]
+    },
+    {
+      "source": "ui-observation",
+      "schema_completeness": "partial",
+      "method": "GET",
+      "path": "/api/site/{site}/global/config/network",
+      "request": {},
+      "responses": {
+        "type": "object",
+        "properties": {
+          "mdns_enabled_for": {
+            "enum": [
+              "all",
+              "none",
+              "some"
+            ]
+          },
+          "mdns_enabled_for_network_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "partial": true
+      },
+      "feature": "global mDNS network scope",
+      "evidence_modules": [
+        "478359",
+        "323434",
+        "995668"
+      ]
+    },
+    {
+      "source": "ui-observation",
+      "schema_completeness": "partial",
+      "method": "PUT",
+      "path": "/api/site/{site}/global/config/network",
+      "request": {
+        "type": "object",
+        "properties": {
+          "mdns_enabled_for": {
+            "enum": [
+              "all",
+              "none",
+              "some"
+            ]
+          },
+          "mdns_enabled_for_network_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "partial": true
+      },
+      "responses": {
+        "type": "object",
+        "properties": {
+          "mdns_enabled_for": {
+            "enum": [
+              "all",
+              "none",
+              "some"
+            ]
+          },
+          "mdns_enabled_for_network_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "partial": true
+      },
+      "feature": "global mDNS network scope",
+      "evidence_modules": [
+        "478359",
+        "323434",
+        "995668"
+      ]
     }
   ]
 }
