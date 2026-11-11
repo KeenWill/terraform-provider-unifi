@@ -47,7 +47,7 @@ features and rollback requirements. `used-api.json` is a conservative dependency
 inventory; update it whenever provider/consumer coverage changes.
 
 The 11.0.99 application package maps 73 bundled official operations, 699 private
-annotation operations and four reviewed Network List UI operations. The public
+annotation operations and six reviewed Network List/global mDNS UI operations. The public
 6.0.17 UDMPRO console image instead bundles native ARM Network 10.6.109. Its
 public spec can be mapped, but it cannot serve as an AMD64 Java acceptance target.
 The scheduler records console testing as not applicable, separately from the

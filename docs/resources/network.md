@@ -272,7 +272,7 @@ This attribute is `Optional` + `Computed`: when omitted from configuration it in
 - `multicast_dns` (Boolean) Enables Multicast DNS (mDNS/Bonjour/Avahi) on the network. When enabled:
 * Allows device discovery (e.g., printers, Chromecasts)
 * Supports zero-configuration networking
-* Available on Controller version 7 and later
+* Available on Controller version 7 and later. On Network 11 this is controller-derived; omit it and manage global scope with unifi_setting_mdns_scope.
 - `network_group` (String) The network group for this network. Default is 'LAN'. For WAN networks, use 'WAN' or 'WAN2'. Network groups help organize and apply policies to multiple networks. Defaults to `LAN`.
 - `network_isolation_enabled` (Boolean) Isolates this network from other local networks/VLANs on the site. When enabled:
 * Hosts on this network cannot route to or from other local networks on the site

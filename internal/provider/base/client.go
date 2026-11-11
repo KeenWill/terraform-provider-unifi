@@ -157,6 +157,14 @@ type Client struct {
 	securitySettingLocks sync.Map
 }
 
+func (c *Client) UpdateMDNSScope(ctx context.Context, site string, value legacy.MDNSScope) (legacy.MDNSScope, error) {
+	lock, _ := c.securitySettingLocks.LoadOrStore(site+":mdns-scope", &sync.Mutex{})
+	mutex := lock.(*sync.Mutex)
+	mutex.Lock()
+	defer mutex.Unlock()
+	return legacy.UpdateMDNSScope(ctx, c, site, value)
+}
+
 // IntegrationClient selects the official API explicitly, without network I/O.
 // Legacy callers are unaffected by unsupported official origins or credentials.
 func (c *Client) IntegrationClient() (*integration.Client, error) {

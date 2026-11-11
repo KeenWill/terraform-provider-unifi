@@ -88,6 +88,7 @@ func ResourceNetwork() *schema.Resource {
 			customizeNetworkVPNClient,
 			customizeNetworkDHCPGuarding,
 			customizeNetworkDefaultGateway,
+			customizeNetworkMDNS,
 		),
 
 		Schema: map[string]*schema.Schema{
@@ -592,9 +593,10 @@ func ResourceNetwork() *schema.Resource {
 				Description: "Enables Multicast DNS (mDNS/Bonjour/Avahi) on the network. When enabled:\n" +
 					"* Allows device discovery (e.g., printers, Chromecasts)\n" +
 					"* Supports zero-configuration networking\n" +
-					"* Available on Controller version 7 and later",
+					"* Available on Controller version 7 and later. On Network 11 this is controller-derived; omit it and manage global scope with unifi_setting_mdns_scope.",
 				Type:     schema.TypeBool,
 				Optional: true,
+				Computed: true,
 			},
 			"wan_ip": {
 				Description: "The static IPv4 address for WAN interface.\n" +
@@ -1043,6 +1045,18 @@ func resourceNetworkGetResourceData(d *schema.ResourceData) (*unifi.Network, err
 // at plan time. Presence is read from GetRawConfig so a field supplied through
 // interpolation (e.g. var.x, unknown at plan) counts as set instead of tripping a
 // false "required" error.
+func customizeNetworkMDNS(_ context.Context, d *schema.ResourceDiff, meta interface{}) error {
+	c, ok := meta.(*base.Client)
+	if !ok || c.Version == nil || c.Version.Segments()[0] < 11 {
+		return nil
+	}
+	raw := d.GetRawConfig()
+	if !raw.IsNull() && !raw.GetAttr("multicast_dns").IsNull() {
+		return errors.New("Network 11 derives multicast_dns from global settings; omit this attribute and use unifi_setting_mdns_scope")
+	}
+	return nil
+}
+
 func customizeNetworkVPNClient(_ context.Context, d *schema.ResourceDiff, _ interface{}) error {
 	raw := d.GetRawConfig()
 	if raw.IsNull() || !raw.IsKnown() || !d.NewValueKnown("purpose") {

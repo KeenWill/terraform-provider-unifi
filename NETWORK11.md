@@ -105,6 +105,31 @@ restore it without resetting ordinary logging, match criteria, action or order;
 re-read and compare. Do not delete a policy just to relinquish ownership of its
 reporting setting. Predefined and user policies require distinct tested paths.
 
+## Global mDNS network scope (acceptance tested)
+
+UI module `478359` selects the private v2 endpoint
+`GET|PUT /proxy/network/v2/api/site/{site}/global/config/network`.
+Its `mdns_enabled_for` enum is `all`, `none`, or `some`;
+`mdns_enabled_for_network_ids` contains the selected legacy network UUIDs.
+For `all` and `none`, the returned network set is controller-derived. A partial
+PUT containing only the scope is accepted. For `some`, send the explicitly
+selected network set with the scope. Other global fields must be omitted.
+
+`unifi_setting_mdns_scope` verifies fresh Network **11.0.99** version and field
+shapes before every mutation, reads current state, submits only these declared
+fields, and verifies a fresh GET. The site-scoped client lock covers this sequence.
+Network 11's legacy `networkconf.mdns_enabled` is derived from this global scope;
+declaring the old `unifi_network.multicast_dns` field now produces a diagnostic.
+Omitting it reads the derived value without proposing a perpetual change.
+
+Rollback: save the current scope and, for `some`, its selected network IDs; restore
+those same declared fields through the same PUT and verify with GET. Removing
+the resource from state or destroying it only relinquishes ownership. It never
+disables mDNS automatically. Acceptance on disposable OS Server 6.0.19 / Network
+11.0.99 covers `none` → `some` → `all`, import, rollback and preservation of all
+unowned global fields. This proves API configuration behavior, not packet
+forwarding on gateway hardware.
+
 ## Identity and private-write requirements
 
 Observed Network 11 legacy network and WLAN responses have UUID `_id` and
