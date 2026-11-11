@@ -22,13 +22,15 @@ type flowReportingModel struct {
 }
 type flowReportingResource struct{ client *integration.Client }
 
+var _ resource.ResourceWithImportState = (*flowReportingResource)(nil)
+
 func NewFlowReportingResource() resource.Resource { return &flowReportingResource{} }
 func (r *flowReportingResource) Metadata(_ context.Context, _ resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = "unifi_firewall_policy_flow_reporting"
 }
 func (r *flowReportingResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{MarkdownDescription: "Owns only flow reporting on an existing user-defined firewall policy through the official Network Integration API. Requires an API key and explicit official API UUIDs; legacy IDs and provider site names are not interchangeable. Qualified for Network 11.0.99. Destroy relinquishes ownership without changing the policy. Do not concurrently manage this field through another resource or UI. Import uses `official-site-uuid/official-policy-uuid`.", Attributes: map[string]schema.Attribute{
-		"id":        schema.StringAttribute{Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
+		"id":        schema.StringAttribute{MarkdownDescription: "Official site UUID and policy UUID separated by `/`.", Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 		"site_id":   schema.StringAttribute{Required: true, MarkdownDescription: "Official Integration API site UUID.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 		"policy_id": schema.StringAttribute{Required: true, MarkdownDescription: "Official Integration API user-defined policy UUID.", PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 		"enabled":   schema.BoolAttribute{Required: true, MarkdownDescription: "Whether matching traffic appears in Insights Flows."},
