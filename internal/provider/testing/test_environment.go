@@ -54,6 +54,9 @@ func Run(m *testing.M, callback func(env *TestEnvironment)) int {
 		// short circuit non-acceptance test runs
 		os.Exit(m.Run())
 	}
+	if manifest := os.Getenv("UNIFI_ACCTEST_LAB_FILE"); manifest != "" {
+		return runLab(m, callback, manifest)
+	}
 	env := NewTestEnvironment(5 * time.Minute)
 	return env.run(m, callback)
 }
