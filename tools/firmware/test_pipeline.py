@@ -200,6 +200,32 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(surface.parameter_signatures("<T:Ljava/lang/Object;>(I[Ljava/lang/String;Ljava/util/List<TT;>;)V"),
                          ["I", "[Ljava/lang/String;", "Ljava/util/List<TT;>;"])
 
+    def test_transitive_evidence_crosses_maps_and_unannotated_fields(self):
+        for signature, envelope in [("()Ljava/util/Map<Ljava/lang/String;LDto;>;", False),
+                                    ("()LEnvelope;", True)]:
+            controller = {"name": "Controller", "parent": "java/lang/Object", "fields": [], "annotations": [],
+                          "methods": [{"descriptor": "()LEnvelope;" if envelope else "()Ljava/util/Map;",
+                                       "signature": signature, "parameters": [], "annotations": [
+                                           {"type": "Lorg/springframework/web/bind/annotation/GetMapping;", "values": {"value": ["/used"]}}]}]}
+            dto = {"name": "Dto", "parent": "java/lang/Object", "methods": [], "annotations": [], "fields": []}
+            parent = {"name": "Envelope", "parent": "java/lang/Object", "methods": [], "annotations": [],
+                      "fields": [{"name": "payload", "access": 1, "descriptor": "LDto;", "annotations": []}]}
+            def mapped(payload):
+                content = io.BytesIO()
+                with zipfile.ZipFile(content, "w") as archive:
+                    archive.writestr("Controller.class", b"/web/bind/annotation/controller")
+                    archive.writestr("Dto.class", payload)
+                    archive.writestr("Envelope.class", b"envelope")
+                with zipfile.ZipFile(io.BytesIO(content.getvalue())) as archive, patch.object(
+                        surface, "parse", side_effect=lambda data: parent if data == b"envelope" else
+                        (controller if b"controller" in data else dto)):
+                    return surface.private_surface(archive)
+            before, after = mapped(b"dto-v1"), mapped(b"dto-v2")
+            self.assertGreaterEqual(before[0]["model_evidence"]["reachable_class_count"], 1)
+            original = {"format_version": 1, "application_version": "a", "operations": before}
+            self.assertTrue(pipeline.compare(original, {**original, "operations": after},
+                                            [{"path": "/used", "reason": "used"}])["touches_used_api"])
+
     def test_unrelated_changes_do_not_trigger_used_api_signal(self):
         document = {"format_version": 1, "application_version": "a", "operations": [
             {"source": "bundled-openapi", "path": "/v1/countries", "method": "GET", "responses": {}}]}
