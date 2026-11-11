@@ -1,4 +1,6 @@
 import copy
+import io
+import zipfile
 import hashlib
 import json
 import tempfile
@@ -142,6 +144,34 @@ class SurfaceTests(unittest.TestCase):
             before = {"format_version": 1, "application_version": "a", "operations": []}
             after = {**before, "operations": [{"source": "spring-annotation", "path": path, "method": "GET"}]}
             self.assertTrue(pipeline.compare(before, after, rules)["touches_used_api"])
+
+    def test_nested_response_containers_retain_their_shape(self):
+        dto = {"name": "Dto", "parent": "java/lang/Object", "methods": [], "annotations": [],
+               "fields": [{"access": 0, "descriptor": "Ljava/lang/String;", "annotations": [
+                   {"type": "Lcom/fasterxml/jackson/annotation/JsonProperty;", "values": {"value": "name"}}]}]}
+        controller = {"name": "Controller", "parent": "java/lang/Object", "fields": [], "annotations": [],
+                      "methods": [{"descriptor": "()Lorg/springframework/http/ResponseEntity;", "parameters": [],
+                                   "annotations": [{"type": "Lorg/springframework/web/bind/annotation/GetMapping;",
+                                                    "values": {"value": ["/used"]}}]}]}
+        content = io.BytesIO()
+        with zipfile.ZipFile(content, "w") as archive:
+            archive.writestr("Controller.class", b"/web/bind/annotation/controller")
+            archive.writestr("Dto.class", b"dto")
+        def mapped(argument):
+            controller["methods"][0]["signature"] = "()Lorg/springframework/http/ResponseEntity<" + argument + ">;"
+            with zipfile.ZipFile(io.BytesIO(content.getvalue())) as archive, patch.object(
+                    surface, "parse", side_effect=lambda data: dto if data == b"dto" else controller):
+                return surface.private_surface(archive)
+        array = mapped("Ljava/util/List<LDto;>;")
+        single = mapped("LDto;")
+        self.assertEqual(array[0]["responses"]["type"], "array")
+        self.assertEqual(array[0]["responses"]["items"]["type"], "object")
+        self.assertEqual(single[0]["responses"]["type"], "object")
+        before = {"format_version": 1, "application_version": "a", "operations": array}
+        self.assertTrue(pipeline.compare(before, {**before, "operations": single},
+                                        [{"path": "/used", "reason": "used"}])["touches_used_api"])
+        nested = mapped("Ljava/util/Optional<Ljava/util/List<LDto;>;>;")
+        self.assertEqual(nested[0]["responses"]["type"], "array")
 
     def test_unrelated_changes_do_not_trigger_used_api_signal(self):
         document = {"format_version": 1, "application_version": "a", "operations": [

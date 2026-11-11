@@ -76,6 +76,34 @@ def public_surface(spec):
     return result
 
 
+def immediate_generic(signature):
+    """Return the first immediate type argument, retaining nested containers."""
+    if not signature or "<" not in signature:
+        return None
+    start = signature.index("<") + 1
+    if signature[start:start + 1] == "+":
+        start += 1
+    if signature[start:start + 1] in {"", "*", "-", "T"}:
+        return None
+    depth = 0
+    end = start
+    while end < len(signature):
+        char = signature[end]
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            if depth == 0:
+                return None
+            depth -= 1
+        elif char == ";" and depth == 0:
+            raw = signature[start:end + 1]
+            return re.sub(r"<.*>", "", raw), raw
+        elif char in "ZBCSIJFD" and end == start:
+            return char, char
+        end += 1
+    return None
+
+
 def private_surface(archive):
     cache = {}
 
@@ -104,14 +132,14 @@ def private_surface(archive):
         if descriptor == "V":
             return {"type": "null"}
         if descriptor.startswith("["):
-            return {"type": "array", "items": schema(descriptor[1:], seen=seen)}
+            return {"type": "array", "items": schema(descriptor[1:], signature[1:] if signature and signature.startswith("[") else None, seen=seen)}
         if descriptor in {"Ljava/util/List;", "Ljava/util/Set;", "Ljava/util/Collection;"}:
-            inner = re.search(r"<\+?(L[^<>;]+;)", signature or "")
-            return {"type": "array", "items": schema(inner[1], seen=seen) if inner else
+            inner = immediate_generic(signature)
+            return {"type": "array", "items": schema(inner[0], inner[1], seen=seen) if inner else
                     {"unknown": "generic element type"}}
         if descriptor in {"Lorg/springframework/http/ResponseEntity;", "Ljava/util/Optional;"}:
-            inner = re.search(r"<\+?(L[^<>;]+;)", signature or "")
-            return schema(inner[1], seen=seen) if inner else {"unknown": "generic wrapper"}
+            inner = immediate_generic(signature)
+            return schema(inner[0], inner[1], seen=seen) if inner else {"unknown": "generic wrapper"}
         if not descriptor.startswith("L"):
             return {"unknown": "unresolved descriptor"}
         name = descriptor[1:-1]
@@ -180,6 +208,7 @@ def private_surface(archive):
                                 routes.append({"path": path, "method": verb,
                                                "source": "spring-annotation",
                                                "schema_completeness": "partial",
+                                               "jvm_contract": {"descriptor": member["descriptor"], "signature": member.get("signature")},
                                                "request": requests,
                                                "responses": response})
     # Servlet mounting prefixes are deliberately not inferred from class names.
