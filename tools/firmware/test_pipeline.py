@@ -173,6 +173,33 @@ class SurfaceTests(unittest.TestCase):
         nested = mapped("Ljava/util/Optional<Ljava/util/List<LDto;>;>;")
         self.assertEqual(nested[0]["responses"]["type"], "array")
 
+    def test_generic_request_body_tracks_dto_field_changes(self):
+        dto = {"name": "Dto", "parent": "java/lang/Object", "methods": [], "annotations": [],
+               "fields": [{"access": 0, "descriptor": "Ljava/lang/String;", "annotations": [
+                   {"type": "Lcom/fasterxml/jackson/annotation/JsonProperty;", "values": {"value": "name"}}]}]}
+        controller = {"name": "Controller", "parent": "java/lang/Object", "fields": [], "annotations": [],
+                      "methods": [{"descriptor": "(Ljava/util/List;)V", "signature": "(Ljava/util/List<LDto;>;)V",
+                                   "parameters": [[{"type": "Lorg/springframework/web/bind/annotation/RequestBody;", "values": {}}]],
+                                   "annotations": [{"type": "Lorg/springframework/web/bind/annotation/PostMapping;",
+                                                    "values": {"value": ["/used"]}}]}]}
+        content = io.BytesIO()
+        with zipfile.ZipFile(content, "w") as archive:
+            archive.writestr("Controller.class", b"/web/bind/annotation/controller")
+            archive.writestr("Dto.class", b"dto")
+        def mapped():
+            with zipfile.ZipFile(io.BytesIO(content.getvalue())) as archive, patch.object(
+                    surface, "parse", side_effect=lambda data: dto if data == b"dto" else controller):
+                return surface.private_surface(archive)
+        before = mapped()
+        self.assertEqual(before[0]["request"][0]["items"]["properties"]["name"]["type"], "string")
+        dto["fields"][0]["descriptor"] = "Z"
+        after = mapped()
+        original = {"format_version": 1, "application_version": "a", "operations": before}
+        self.assertTrue(pipeline.compare(original, {**original, "operations": after},
+                                        [{"path": "/used", "reason": "used"}])["touches_used_api"])
+        self.assertEqual(surface.parameter_signatures("<T:Ljava/lang/Object;>(I[Ljava/lang/String;Ljava/util/List<TT;>;)V"),
+                         ["I", "[Ljava/lang/String;", "Ljava/util/List<TT;>;"])
+
     def test_unrelated_changes_do_not_trigger_used_api_signal(self):
         document = {"format_version": 1, "application_version": "a", "operations": [
             {"source": "bundled-openapi", "path": "/v1/countries", "method": "GET", "responses": {}}]}
