@@ -118,6 +118,24 @@ class SurfaceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 surface.public_surface(spec)
 
+    def test_security_inheritance_overrides_and_scheme_changes(self):
+        spec = {"paths": {"/v1/sites": {"get": {}}},
+                "security": [{"key": []}], "components": {"securitySchemes": {
+                    "key": {"type": "apiKey", "in": "header", "name": "X-API-KEY"}}}}
+        before = surface.public_surface(spec)
+        spec["components"]["securitySchemes"]["key"]["name"] = "X-NEW-KEY"
+        after = surface.public_surface(spec)
+        delta = pipeline.compare({"format_version": 1, "application_version": "a", "operations": before},
+                                 {"format_version": 1, "application_version": "b", "operations": after},
+                                 [{"path": "*/sites", "reason": "used"}])
+        self.assertTrue(delta["touches_used_api"])
+        spec["paths"]["/v1/sites"]["get"]["security"] = []
+        self.assertEqual(surface.public_surface(spec)[0]["security"], {"requirements": [], "schemes": {}})
+        del spec["paths"]["/v1/sites"]["get"]["security"]
+        del spec["components"]["securitySchemes"]["key"]
+        with self.assertRaises(ValueError):
+            surface.public_surface(spec)
+
     def test_unrelated_changes_do_not_trigger_used_api_signal(self):
         document = {"format_version": 1, "application_version": "a", "operations": [
             {"source": "bundled-openapi", "path": "/v1/countries", "method": "GET", "responses": {}}]}
