@@ -36,8 +36,9 @@ concurrency:
 
 jobs:
   test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Matrix Test
-    runs-on: ubuntu-latest
+    runs-on: cluster-terraform-provider-unifi
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -78,5 +79,5 @@ jobs:
         with:
           timeout_minutes: 20
           max_attempts: 3
-          command: export TF_PLUGIN_CACHE_DIR=$(mktemp -d) && make testacc TEST_TIMEOUT=1h UNIFI_STDOUT=true UNIFI_VERSION=${{ matrix.unifi_download_url && 'beta' || matrix.unifi_version }} UNIFI_DOWNLOAD_URL=${{ matrix.unifi_download_url }}
+          command: export TF_PLUGIN_CACHE_DIR=$(mktemp -d) && make testacc TEST_TIMEOUT=1h UNIFI_STDOUT=true UNIFI_VERSION=${{ matrix.unifi_version }}
           retry_on: "timeout"
