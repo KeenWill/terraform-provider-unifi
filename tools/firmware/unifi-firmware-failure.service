@@ -3,5 +3,8 @@ Description=Report a failed UniFi firmware scheduled job
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/coord notify --from unifi-firmware --key service-failed "UniFi firmware job failed; inspect its local receipt and service journal."
+# coord notify deduplicates on (from, key): a fixed key posts only the first failure ever.
+# systemd gives OnFailure= units the failed run's MONITOR_INVOCATION_ID, so each failed run
+# gets its own key; the UTC timestamp covers a manual start without it.
+ExecStart=/bin/sh -c 'exec %h/.local/bin/coord notify --from unifi-firmware --key "service-failed-$${MONITOR_INVOCATION_ID:-$$(date -u +%%Y%%m%%dT%%H%%M%%SZ)}" "UniFi firmware job failed; inspect its local receipt and service journal."'
 UMask=0077

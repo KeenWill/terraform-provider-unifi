@@ -148,7 +148,14 @@ downloads and Matter discovery require separate hardware evidence.
 The provided user service and timer poll daily, with a small randomized delay.
 Install the failure-notice service too and adjust its coord path; it covers
 service/configuration/preflight failures before the watcher can publish a receipt.
-Adjust `ExecStart` to the installed reviewed checkout and configuration. Run the
+Its notice key includes the failed run's `MONITOR_INVOCATION_ID`, so every failed
+run posts its own notice instead of being deduplicated against the first one.
+The service expects the reviewed checkout at `~/unifi-provider` and the
+configuration, lab files, receipts and Go caches under `~/.local/state/unifi-firmware`;
+adjust those paths if you install elsewhere. If the lab configuration names QEMU
+by a Nix store path, give that path a GC root (for example `nix-store --realise
+--add-root ~/.local/state/unifi-firmware/gcroots/qemu <store-path>`) so a garbage
+collection cannot remove it before the next firmware release is tested. Run the
 service manually and inspect its receipts before enabling the timer with
 `systemctl --user enable --now unifi-firmware.timer`. Installing these example
 files alone does not enable a job. No GitHub-hosted Actions or dashboard is used.

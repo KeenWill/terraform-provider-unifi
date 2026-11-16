@@ -4,8 +4,18 @@ OnFailure=unifi-firmware-failure.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 %h/unifi-provider/tools/firmware/watch.py %h/.config/unifi-firmware/watch.json
+# The reviewed checkout lives at ~/unifi-provider; configuration, VM image, receipts
+# and Go caches live under ~/.local/state/unifi-firmware.
+WorkingDirectory=%h/unifi-provider
+ExecStart=/usr/bin/python3 %h/unifi-provider/tools/firmware/watch.py %h/.local/state/unifi-firmware/watch.json
+Environment=PATH=/usr/bin:/bin:%h/.local/bin
+Environment=GOPATH=%h/.local/state/unifi-firmware/gopath
+Environment=GOMODCACHE=%h/.local/state/unifi-firmware/go-mod
+Environment=GOCACHE=%h/.local/state/unifi-firmware/go-build
+Environment=GOMAXPROCS=4
+Environment=TF_ACC_TERRAFORM_PATH=/usr/bin/tofu
 TimeoutStartSec=2h
+TimeoutStopSec=90s
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
