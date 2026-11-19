@@ -80,10 +80,28 @@ def wait_ready(endpoint, auth, expected, process, timeout):
     raise RuntimeError("lab controller did not confirm the exact requested Network version")
 
 
-def run(config, artifact, sha, version):
+def install_command(dependency_count):
+    """Guest command installing the dependencies and the package in one dpkg run."""
+    names = [f"dependency-{i}.deb" for i in range(dependency_count)] + ["network.deb"]
+    copies = " && ".join(
+        f"sudo install -m 644 /home/lab/{n} /tmp/{n} && "
+        f"sudo -u uosserver podman cp /tmp/{n} uosserver:/tmp/{n}" for n in names)
+    return ("cd /tmp && " + copies + " && "
+            "sudo -u uosserver podman exec uosserver env DEBIAN_FRONTEND=noninteractive "
+            "dpkg -i " + " ".join("/tmp/" + n for n in names))
+
+
+def run(config, artifact, sha, version, dependencies=()):
     artifact = Path(artifact).resolve()
     if pipeline.digest(artifact) != sha:
         raise ValueError("unverified test artifact")
+    verified = []
+    for path, expected in dependencies:
+        path = Path(path).resolve()
+        if pipeline.digest(path) != expected:
+            raise ValueError("unverified dependency package")
+        verified.append(path)
+    dependencies = verified
     base = Path(config["base_image"]).resolve()
     if pipeline.digest(base) != config["base_sha256"]:
         raise ValueError("prepared lab base checksum changed")
@@ -127,16 +145,15 @@ def run(config, artifact, sha, version):
                         if process.poll() is not None or time.monotonic() >= deadline:
                             raise RuntimeError("disposable VM SSH startup failed")
                         time.sleep(3)
-                subprocess.run(["scp", "-i", str(key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
-                                "-o", "UserKnownHostsFile=" + str(work / "hosts"), "-P", str(ssh_port),
-                                str(artifact), "lab@127.0.0.1:/home/lab/network.deb"],
-                               check=True, timeout=600, stdout=subprocess.DEVNULL)
+                uploads = [(path, f"dependency-{i}.deb") for i, path in enumerate(dependencies)]
+                for source, name in [*uploads, (artifact, "network.deb")]:
+                    subprocess.run(["scp", "-i", str(key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes",
+                                    "-o", "UserKnownHostsFile=" + str(work / "hosts"), "-P", str(ssh_port),
+                                    str(source), "lab@127.0.0.1:/home/lab/" + name],
+                                   check=True, timeout=600, stdout=subprocess.DEVNULL)
                 # These fixed commands execute only inside the owned VM. Every
                 # run gets a new overlay; installation cannot reach host cgroups.
-                guest(ssh, "sudo install -m 644 /home/lab/network.deb /tmp/network.deb && "
-                      "cd /tmp && sudo -u uosserver podman cp /tmp/network.deb uosserver:/tmp/network.deb && "
-                      "sudo -u uosserver podman exec uosserver env DEBIAN_FRONTEND=noninteractive "
-                      "dpkg -i /tmp/network.deb", stdout=log, stderr=log)
+                guest(ssh, install_command(len(dependencies)), stdout=log, stderr=log)
                 wait_ready(endpoint, auth, version, process, config.get("startup_timeout_seconds", 900))
                 manifest = work / "lab.json"
                 manifest.write_text(json.dumps({**auth, "endpoint": endpoint, "version": version}))
@@ -172,5 +189,9 @@ if __name__ == "__main__":
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--dependency", nargs=2, action="append", default=[],
+                        metavar=("PATH", "SHA256"),
+                        help="verified catalog package the artifact depends on")
     args = parser.parse_args()
-    run(json.loads(args.config.read_text()), args.artifact, args.sha256, args.version)
+    run(json.loads(args.config.read_text()), args.artifact, args.sha256, args.version,
+        args.dependency)

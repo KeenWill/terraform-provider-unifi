@@ -73,6 +73,93 @@ class FetchTests(unittest.TestCase):
             self.assertFalse((base / "out").exists())
 
 
+
+DEPENDS_11_0_103 = (
+    "Package: unifi\nVersion: 11.0.103-37274-1\n"
+    "Depends: binutils, coreutils, adduser, libcap2, curl, logrotate, mongodb-server (>= 1:3.6.0)"
+    " | mongodb-10gen (>= 3.6.0) | mongodb-org-server (>= 3.6.0), mongodb-server (<< 1:5.0.0)"
+    " | mongodb-10gen (<< 5.0.0) | mongodb-org-server (<< 5.0.0),\n"
+    " unifi-matter-controller (= 1.0.2), unifi-core (>= 6.0.91),"
+    " temurin-25-jre | openjdk-25-jre | openjdk-25-jre-headless\n"
+    "Pre-Depends: debconf (>= 0.5) | debconf-2.0\n")
+
+
+class DependencyTests(unittest.TestCase):
+    def record(self, version, platform="uos-deb13-amd64", payload=None):
+        major, minor, patch_ = (int(x) for x in version.split("."))
+        payload = payload or version.encode()
+        return {"product": "unifi-matter-controller", "platform": platform, "channel": "release",
+                "version": "v" + version, "version_major": major, "version_minor": minor,
+                "version_patch": patch_, "tags": {"deb_version": version},
+                "sha256_checksum": hashlib.sha256(payload).hexdigest(), "file_size": len(payload),
+                "created": "2026-11-18",
+                "_links": {"data": {"href": "https://fw-download.ubnt.com/matter-" + version}}}
+
+    def resolve(self, catalog, control=DEPENDS_11_0_103):
+        queried = []
+        def download(url, destination, maximum=pipeline.MAX_DOWNLOAD):
+            if url.startswith(pipeline.HISTORY + "?"):
+                queried.append(url)
+                records = catalog if "unifi-matter-controller" in url else []
+                destination.write_text(json.dumps({"_embedded": {"firmware": records}}))
+            else:
+                destination.write_bytes(url.rsplit("-", 1)[1].encode())
+        def sandbox(command, artifact, output):
+            self.assertEqual(["dpkg-deb", "--control", "/input/artifact", "/output/DEBIAN"], command)
+            (output / "DEBIAN").mkdir()
+            (output / "DEBIAN/control").write_text(control)
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(pipeline, "download", download), patch.object(pipeline, "sandbox", sandbox):
+            artifact = Path(directory) / "unifi.deb"
+            artifact.write_bytes(b"!<arch>\nfixture")
+            resolved = pipeline.dependencies(artifact, pipeline.digest(artifact), "uos-deb13-amd64",
+                                             Path(directory) / "cache", Path(directory) / "control")
+            payloads = [Path(d["artifact"]).read_bytes() for d in resolved]
+        return resolved, payloads, queried
+
+    def test_relations_parse_alternatives_versions_and_continuations(self):
+        fields = pipeline.control_fields(DEPENDS_11_0_103)
+        groups = pipeline.relations(fields["Depends"])
+        self.assertIn([("unifi-matter-controller", "=", "1.0.2")], groups)
+        self.assertIn([("curl", None, None)], groups)
+        self.assertEqual(3, len(groups[6]))
+        with self.assertRaises(ValueError):
+            pipeline.relations("bad name (= 1)")
+
+    def test_resolves_exact_declared_version_not_newest(self):
+        catalog = [self.record("1.0.0"), self.record("1.0.2"), self.record("1.0.3"),
+                   self.record("1.0.2", "uos-deb13-arm64")]
+        resolved, payloads, queried = self.resolve(catalog)
+        self.assertEqual(["v1.0.2"], [d["release"]["version"] for d in resolved])
+        self.assertEqual([b"1.0.2"], payloads)
+        self.assertEqual("uos-deb13-amd64", resolved[0]["release"]["platform"])
+        # Alternative groups (mongodb, java, debconf) are left to the prepared base.
+        self.assertFalse(any("mongodb" in url or "debconf" in url for url in queried))
+
+    def test_range_relation_picks_newest_satisfying_release(self):
+        control = "Package: unifi\nDepends: unifi-matter-controller (>= 1.0.1), unifi-matter-controller (<< 1.0.3)\n"
+        catalog = [self.record("1.0.0"), self.record("1.0.1"), self.record("1.0.2"), self.record("1.0.3")]
+        resolved, _, _ = self.resolve(catalog, control)
+        self.assertEqual(["v1.0.2"], [d["release"]["version"] for d in resolved])
+
+    def test_unpublished_required_version_fails_with_specific_error(self):
+        # The 11-19 catalog: 1.0.2 exists only for arm64; amd64 has 1.0.0.
+        catalog = [self.record("1.0.0"), self.record("1.0.2", "uos-deb13-arm64")]
+        with self.assertRaisesRegex(pipeline.DependencyUnavailable,
+                                    r"unifi-matter-controller \(= 1.0.2\) is not published .* 1.0.0$"):
+            self.resolve(catalog)
+
+    def test_names_absent_from_catalog_are_base_packages(self):
+        resolved, _, queried = self.resolve([], "Package: unifi\nDepends: curl, unifi-core (>= 6.0.91)\n")
+        self.assertEqual([], resolved)
+        self.assertEqual(2, len(queried))
+
+    def test_payload_must_match_catalog_checksum(self):
+        record = {**self.record("1.0.2"), "sha256_checksum": "0" * 64}
+        with self.assertRaisesRegex(ValueError, "checksum"):
+            self.resolve([record])
+
+
 class SurfaceTests(unittest.TestCase):
     def test_documentation_named_properties_and_literal_defaults_survive_mapping(self):
         original = {"properties": {"description": {"type": "string", "description": "prose"},
