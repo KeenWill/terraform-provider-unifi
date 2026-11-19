@@ -17,6 +17,7 @@ class WatchTests(unittest.TestCase):
         self.pointer = self.state / "unifi-uos-deb13-amd64/accepted.json"
         self.document = {"format_version": 1, "application_version": "11.0.99",
                          "operations": []}
+        self.needed = []
 
     def poll(self, sha, fail_test=False, fail_notice=False, changed=False, qualification="fixture"):
         fetched = {"artifact": "/fixture/artifact", "release": {
@@ -26,13 +27,41 @@ class WatchTests(unittest.TestCase):
         with patch("watch.pipeline.fetch", return_value=fetched), \
                 patch("watch.pipeline.extract", return_value=Path("/fixture/app")), \
                 patch("watch.surface.build", return_value=current), \
+                patch("watch.pipeline.dependencies", return_value=self.needed), \
                 patch("watch.run_test", side_effect=subprocess.CalledProcessError(1, "test")
                       if fail_test else None) as test, \
                 patch("watch.notice", side_effect=RuntimeError("notice unavailable")
                       if fail_notice else None) as notify:
             result = watch.poll(self.target, self.state, [{"path": "/used", "reason": "managed"}],
                                 ["isolated-runner"], ["coord", "notify"], qualification)
+            self.test_argv = test.call_args.args[0] if test.call_args else []
             return result, test.call_count, notify.call_count
+
+    def test_declared_catalog_dependencies_reach_runner_and_receipt(self):
+        self.needed = [{"artifact": "/fixture/matter", "release": {
+            "product": "unifi-matter-controller", "version": "v1.0.2", "sha256_checksum": "c" * 64}}]
+        result, tested, _ = self.poll("a" * 64)
+        self.assertEqual(1, tested)
+        self.assertEqual(["--dependency", "/fixture/matter", "c" * 64], self.test_argv[-3:])
+        self.assertEqual([{"product": "unifi-matter-controller", "version": "v1.0.2",
+                           "sha256": "c" * 64}], result["dependencies"])
+
+    def test_unpublished_dependency_fails_before_runner_without_advancing(self):
+        self.poll("a" * 64)
+        before = self.pointer.read_bytes()
+        missing = watch.pipeline.DependencyUnavailable("not published")
+        with patch("watch.pipeline.fetch", return_value={"artifact": "/fixture", "release": {
+                "version": "v11", "sha256_checksum": "b" * 64}}), \
+                patch("watch.pipeline.extract", return_value=Path("/fixture/app")), \
+                patch("watch.surface.build", return_value=self.document), \
+                patch("watch.pipeline.dependencies", side_effect=missing), \
+                patch("watch.run_test") as test, patch("watch.notice"), \
+                self.assertRaises(watch.pipeline.DependencyUnavailable):
+            watch.poll(self.target, self.state, [], ["runner"], ["coord", "notify"])
+        test.assert_not_called()
+        self.assertEqual(before, self.pointer.read_bytes())
+        receipt = json.loads((self.pointer.parent / "last-run.json").read_text())
+        self.assertEqual("DependencyUnavailable", receipt["error_type"])
 
     def test_failed_acceptance_does_not_advance_successful_baseline(self):
         self.poll("a" * 64)

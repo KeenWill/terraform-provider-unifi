@@ -16,6 +16,7 @@ from urllib.parse import urlencode, urlparse
 import surface
 
 CATALOG = "https://fw-update.ubnt.com/api/firmware-latest"
+HISTORY = "https://fw-update.ubnt.com/api/firmware"
 MAX_DOWNLOAD = 4 * 1024**3
 
 
@@ -76,22 +77,118 @@ def fetch(product, platform, cache):
         download(CATALOG + "?" + urlencode({"filter": "eq~~product~~" + product}),
                  catalog, 10 * 1024**2)
         records = json.loads(catalog.read_text())["_embedded"]["firmware"]
-        record = choose(records, product, platform)
-        target = cache / record["sha256_checksum"]
-        target.mkdir(exist_ok=True)
-        payload = target / "artifact"
-        if payload.exists() and digest(payload) != record["sha256_checksum"]:
-            raise ValueError("cached artifact checksum mismatch")
-        if not payload.exists():
-            candidate = Path(temporary) / "artifact"
-            download(record["_links"]["data"]["href"], candidate)
-            if candidate.stat().st_size != record["file_size"]:
-                raise ValueError("download size differs from public catalog")
-            if digest(candidate) != record["sha256_checksum"]:
-                raise ValueError("download checksum differs from public catalog")
-            candidate.replace(payload)
-        write_json(target / "release.json", record)
-        return {"artifact": str(payload.resolve()), "release": record}
+        return store(choose(records, product, platform), cache, Path(temporary))
+
+
+def store(record, cache, temporary):
+    """Download one chosen catalog record into the cache, verifying size and SHA256."""
+    target = cache / record["sha256_checksum"]
+    target.mkdir(exist_ok=True)
+    payload = target / "artifact"
+    if payload.exists() and digest(payload) != record["sha256_checksum"]:
+        raise ValueError("cached artifact checksum mismatch")
+    if not payload.exists():
+        candidate = temporary / "artifact"
+        download(record["_links"]["data"]["href"], candidate)
+        if candidate.stat().st_size != record["file_size"]:
+            raise ValueError("download size differs from public catalog")
+        if digest(candidate) != record["sha256_checksum"]:
+            raise ValueError("download checksum differs from public catalog")
+        candidate.replace(payload)
+    write_json(target / "release.json", record)
+    return {"artifact": str(payload.resolve()), "release": record}
+
+
+class DependencyUnavailable(ValueError):
+    """The package requires a catalog package version the vendor has not published."""
+
+
+PACKAGE = r"[a-z0-9][a-z0-9+.-]+"
+DEB_VERSION = r"[A-Za-z0-9][A-Za-z0-9.+~:-]*"
+RELATION = re.compile(r"(" + PACKAGE + r")(?::[a-z0-9-]+)?"
+                      r"(?:\s*\(\s*(<<|<=|=|>=|>>)\s*(" + DEB_VERSION + r")\s*\))?")
+
+
+def control_fields(text):
+    """Parse one Debian control paragraph; continuation lines join their field."""
+    fields, name = {}, None
+    for line in text.splitlines():
+        if line[:1] in (" ", "\t") and name:
+            fields[name] += " " + line.strip()
+        elif ":" in line:
+            name, value = line.split(":", 1)
+            fields[name] = value.strip()
+    return fields
+
+
+def relations(value):
+    """Debian relation field -> list of alternative groups of (name, op, version)."""
+    groups = []
+    for group in filter(None, (g.strip() for g in value.split(","))):
+        alternatives = []
+        for alternative in (a.strip() for a in group.split("|")):
+            match = RELATION.fullmatch(alternative)
+            if not match:
+                raise ValueError("unsupported package relation in control metadata")
+            alternatives.append(match.groups())
+        groups.append(alternatives)
+    return groups
+
+
+def satisfies(version, op, wanted):
+    if not re.fullmatch(DEB_VERSION, version or ""):
+        return False
+    return subprocess.run(["dpkg", "--compare-versions", version, op, wanted],
+                          check=False).returncode == 0
+
+
+def dependencies(artifact, expected_sha256, platform, cache, work):
+    """Fetch the catalog packages a verified .deb declares, at the required versions.
+
+    Every single-choice Depends/Pre-Depends entry whose name is also a product in
+    the public firmware catalog for the same platform is resolved there: the
+    newest release whose deb_version satisfies all of the package's relations on
+    that name. Names the catalog does not publish are OS packages the prepared
+    base supplies. Alternatives ("a | b") are left to the base.
+    """
+    artifact = Path(artifact).resolve()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256) or digest(artifact) != expected_sha256:
+        raise ValueError("refusing to read metadata of an unverified artifact")
+    output = Path(work)
+    output.mkdir(parents=True, exist_ok=False)
+    # Control extraction runs no maintainer script; it is sandboxed like extract().
+    sandbox(["dpkg-deb", "--control", "/input/artifact", "/output/DEBIAN"], artifact, output)
+    fields = control_fields((output / "DEBIAN/control").read_text())
+    wanted = {}
+    for field in ("Pre-Depends", "Depends"):
+        for group in relations(fields.get(field, "")):
+            if len(group) == 1:
+                name, op, version = group[0]
+                wanted.setdefault(name, []).extend([(op, version)] if op else [])
+    cache = Path(cache)
+    cache.mkdir(parents=True, exist_ok=True)
+    resolved = []
+    for name, constraints in sorted(wanted.items()):
+        with tempfile.TemporaryDirectory(dir=cache) as temporary:
+            listing = Path(temporary) / "catalog.json"
+            download(HISTORY + "?" + urlencode([("filter", "eq~~product~~" + name),
+                                                ("filter", "eq~~platform~~" + platform),
+                                                ("filter", "eq~~channel~~release")]),
+                     listing, 10 * 1024**2)
+            records = [r for r in json.loads(listing.read_text())["_embedded"]["firmware"]
+                       if r.get("product") == name and r.get("platform") == platform]
+            if not records:
+                continue
+            matches = [r for r in records if all(
+                satisfies((r.get("tags") or {}).get("deb_version"), op, version)
+                for op, version in constraints)]
+            if not matches:
+                published = sorted(str((r.get("tags") or {}).get("deb_version")) for r in records)
+                required = " ".join(op + " " + version for op, version in constraints)
+                raise DependencyUnavailable(f"{name} ({required}) is not published for {platform};"
+                                            f" catalog has {', '.join(published)}")
+            resolved.append(store(choose(matches, name, platform), cache, Path(temporary)))
+    return resolved
 
 
 def sandbox(command, artifact, output, check=True):

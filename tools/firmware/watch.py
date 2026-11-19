@@ -71,10 +71,21 @@ def poll(target, state, used, test_command, notify_command, qualification="fixtu
         if target["test"]:
             if not test_command:
                 raise ValueError("application target requires an isolated acceptance runner")
+            # The package's own Depends name the vendor packages it needs (for
+            # example unifi-matter-controller (= 1.0.2)); fetch those from the same
+            # catalog before booting, so the VM installs them in one transaction.
+            with tempfile.TemporaryDirectory(prefix="unifi-control-", dir=state) as work:
+                needed = pipeline.dependencies(fetched["artifact"], sha, target["platform"],
+                                               state / "cache", Path(work) / "control")
+            receipt["dependencies"] = [{"product": d["release"]["product"],
+                                        "version": d["release"]["version"],
+                                        "sha256": d["release"]["sha256_checksum"]} for d in needed]
+            extra = [arg for d in needed
+                     for arg in ("--dependency", d["artifact"], d["release"]["sha256_checksum"])]
             # Runner owns boot, isolation, version verification and teardown. It is
             # an argv array from trusted local configuration, never a shell string.
             run_test([*test_command, "--artifact", fetched["artifact"],
-                            "--sha256", sha, "--version", current["application_version"]],
+                            "--sha256", sha, "--version", current["application_version"], *extra],
                      timeout=target.get("test_timeout_seconds", 5400))
             receipt["test"] = "passed"
         else:

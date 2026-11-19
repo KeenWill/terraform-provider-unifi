@@ -6,7 +6,7 @@ that surface with the last successful version, and runs controller acceptance
 tests in a disposable VM containing UniFi OS Server. Vendor binaries and raw UI
 bundles stay in the local cache. Nothing contacts a production controller.
 
-Dependencies: Python 3.12+, curl, bubblewrap, dpkg-deb, squashfs-tools, QEMU,
+Dependencies: Python 3.12+, curl, bubblewrap, dpkg and dpkg-deb, squashfs-tools, QEMU,
 OpenSSH, Go and the provider's acceptance-test Terraform/OpenTofu executable.
 Linux user namespaces must be available. Extraction has no network and sees only
 system executables, the input artifact and a fresh output directory. Package
@@ -117,8 +117,19 @@ Example private `lab.json` (replace every path and checksum):
 }
 ```
 
-Each run verifies the base and application checksums, creates an overlay, boots a
-new VM, installs the selected package inside its container, verifies the exact
+Before booting, `watch.py` reads the package's `Depends`/`Pre-Depends` (control
+files only, in the extraction sandbox). Each single-choice dependency that is also a
+product in the public firmware catalog for the same platform, such as
+`unifi-matter-controller (= 1.0.2)`, is fetched from that catalog at the newest
+release whose `deb_version` satisfies the declared relations, with the same size and
+SHA256 checks as the application. Other names, and `a | b` alternatives, are OS
+packages the prepared base supplies. If the catalog lists the product but no
+satisfying version for the platform, the run fails with `DependencyUnavailable`
+before the VM starts and retries on the next poll. Resolved packages are listed in
+the receipt and passed to `lab.py --dependency PATH SHA256`.
+
+Each run verifies the base, application and dependency checksums, creates an overlay, boots a
+new VM, installs the selected package and its dependencies inside its container in one `dpkg -i`, verifies the exact
 Network version through authenticated HTTP, and supplies an owner-only loopback
 manifest to the Go acceptance harness. A zero-test run or any skipped acceptance test fails qualification, including
 version-guarded resource tests on an unqualified upgrade. Private diagnostics are
